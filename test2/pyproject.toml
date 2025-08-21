@@ -1,0 +1,34 @@
+[build-system]
+requires=["hatchling"]
+build-backend="hatchling.build"
+
+[project]
+name="platonic-universe"
+version="0.1.4"
+authors=[
+    {name="Kshitij Duraphe", email="kshitijduraphe5@gmail.com"},
+]
+description="A library to reproduce results of the platonic representation hypothesis paper in astro"
+readme="README.md"
+requires-python=">=3.9"
+classifiers=[
+    "Programming Language :: Python :: 3",
+    "Development Status :: 2 - Pre-Alpha"
+]
+dependencies = [
+    "datasets",
+    "numpy",
+    "pandas",
+    "Pillow",
+    "scikit-learn",
+    "timm",
+    "torch",
+    "tqdm",
+    "transformers",
+]
+
+[project.urls]
+Homepage="https://github.com/UniverseTBD/platonic-universe"
+
+[tool.hatchling.build.targets.wheel]
+packages = ["src/platonic_universe"]

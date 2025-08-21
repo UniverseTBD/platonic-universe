@@ -1,0 +1,1 @@
+# There isn't really a code of conduct at the moment but let's assume that there is one. 
