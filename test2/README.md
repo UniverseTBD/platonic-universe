@@ -2,11 +2,11 @@
 
 ## Building
 
-Either use the provided `.whl` file for the latest build, or navigate to this directory, and do `python -m hatchling build --target wheel`. It is recommended that before this, you do `uv sync` in the same directory as the `uv.lock` file (located one level above this one), which creates a `.venv` folder (invisible by default), that you can activate with `source .venv/bin/activate`. 
+Either use the provided `.whl` file for the latest build, or build your own (`python -m hatchling build --target wheel`) or navigate to this directory, and do `pip install -e .`. It is recommended that before this, you do `uv sync` in the same directory as the `uv.lock` file (located one level above this one), which creates a `.venv` folder (invisible by default), that you can activate with `source .venv/bin/activate`. 
 
 ## Usage
 
-After installing the package, you can run model comparisons using the high-level API. You can see the models and available datasets in `src/models/_registry.py' or 'src/datasets/_registry.py`. Be default, all huggingface cache directories are set to local. Here's a basic example:
+After installing the package, you can run model comparisons using the high-level API. You can see the models and available datasets in `src/models/_registry.py' or 'src/datasets/_registry.py`. Be default, all huggingface cache directories are set to the current working directory. Here's a basic example:
 
 ```python
 import platonic_universe as pu
