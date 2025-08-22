@@ -2,6 +2,9 @@ import torch
 import logging
 import pandas as pd
 import numpy as np
+import json
+from datetime import datetime
+from pathlib import Path
 
 # Import all the building blocks from your library
 from ..datasets.download_datasets import load_dataset_from_alias, load_dataset_with_info, get_dataset_info
@@ -113,7 +116,9 @@ def compare_models_mknn(
     use_simple_mknn: bool = False,
     use_bulk_processing: bool = False,
     streaming: bool = None,
-    show_progress: bool = False
+    show_progress: bool = False,
+    save_results: bool = False,
+    results_file: str = "./mknn_results.json"
 ) -> dict:
     """
     Compare embeddings from two modalities using mutual k-NN.
@@ -130,6 +135,8 @@ def compare_models_mknn(
         use_bulk_processing: If True, preprocess all images into RAM first, then bulk embed for speed
         streaming: If True, use streaming mode. If None, auto-detect based on cache.
         show_progress: If True, show progress bars during processing
+        save_results: If True, save MKNN results to file (default: False)
+        results_file: Path to save results file (default: "./mknn_results.json")
         
     Returns:
         dict: Results with mknn_score and metadata
@@ -190,8 +197,43 @@ def compare_models_mknn(
         'mknn_method': mknn_method,
         'k': k,
         'aligned_pairs_count': aligned_pairs_count,
-        'modalities': f"{labels[0]} ↔ {labels[1]}" if len(labels) == 2 else labels[0]
+        'modalities': f"{labels[0]} ↔ {labels[1]}" if len(labels) == 2 else labels[0],
+        'timestamp': datetime.now().isoformat(),
+        'batch_size': batch_size,
+        'max_samples': max_samples,
+        'use_lut_normalization': use_lut_normalization,
+        'use_bulk_processing': use_bulk_processing,
+        'streaming': streaming
     }
+    
+    # Save results to file if requested
+    if save_results:
+        try:
+            results_path = Path(results_file)
+            
+            # Load existing results if file exists
+            if results_path.exists():
+                with open(results_path, 'r') as f:
+                    existing_results = json.load(f)
+                if not isinstance(existing_results, list):
+                    existing_results = [existing_results]
+            else:
+                existing_results = []
+            
+            # Append new result
+            existing_results.append(result)
+            
+            # Create directory if it doesn't exist
+            results_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Save updated results
+            with open(results_path, 'w') as f:
+                json.dump(existing_results, f, indent=2)
+            
+            logging.info(f"Results saved to '{results_path}'")
+            
+        except Exception as e:
+            logging.warning(f"Failed to save results to '{results_file}': {e}")
     
     logging.info(f"Comparison complete for '{model_alias}'. MKNN Score: {score:.4f}")
     return result
