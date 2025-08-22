@@ -111,7 +111,8 @@ def compare_models_mknn(
     max_samples: int = None,
     use_lut_normalization: bool = False,
     use_simple_mknn: bool = False,
-    use_bulk_processing: bool = False
+    use_bulk_processing: bool = False,
+    streaming: bool = None
 ) -> dict:
     """
     Compare embeddings from two modalities using mutual k-NN.
@@ -126,6 +127,7 @@ def compare_models_mknn(
         use_lut_normalization: If True, use lookup table normalization; if False, use on-the-fly normalization
         use_simple_mknn: If True, use compute_mknn_simple (cosine distance); if False, use mknn_score (L2+Euclidean)
         use_bulk_processing: If True, preprocess all images into RAM first, then bulk embed for speed
+        streaming: If True, use streaming mode. If None, auto-detect based on cache.
         
     Returns:
         dict: Results with mknn_score and metadata
@@ -134,7 +136,7 @@ def compare_models_mknn(
     
     # Auto-detect dataset type and columns
     dataset_info = get_dataset_info(dataset_alias)
-    dataset, _ = load_dataset_with_info(dataset_alias)
+    dataset, _ = load_dataset_with_info(dataset_alias, streaming=streaming, max_samples=max_samples)
     
     model_obj = load_model_from_alias(model_alias)
     embedder = get_embedder(model_obj)
@@ -150,7 +152,7 @@ def compare_models_mknn(
             column1=columns[0], label1=labels[0],
             column2=columns[1], label2=labels[1],
             batch_size=batch_size,
-            max_samples=max_samples,
+            max_samples=None if streaming else max_samples,  # max_samples already applied in streaming
             dataset_alias=dataset_alias,
             use_lut_normalization=use_lut_normalization,
             use_bulk_processing=use_bulk_processing
