@@ -57,8 +57,8 @@ class ViTBatchEmbedder(BaseEmbedder):
         inputs = self.processor(images=images, return_tensors="pt").to(self.device)
         with torch.no_grad():
             outputs = self.model(**inputs)
-            # Use CLS token (first token) as the image representation
-            batch_embeddings = outputs.last_hidden_state[:, 0, :]
+            # Use mean pooling of non-CLS tokens (skip first token which is CLS)
+            batch_embeddings = outputs.last_hidden_state[:, 1:, :].mean(dim=1)
         
         return batch_embeddings.cpu().numpy()
 
