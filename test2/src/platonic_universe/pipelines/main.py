@@ -112,7 +112,8 @@ def compare_models_mknn(
     use_lut_normalization: bool = False,
     use_simple_mknn: bool = False,
     use_bulk_processing: bool = False,
-    streaming: bool = None
+    streaming: bool = None,
+    show_progress: bool = False
 ) -> dict:
     """
     Compare embeddings from two modalities using mutual k-NN.
@@ -128,6 +129,7 @@ def compare_models_mknn(
         use_simple_mknn: If True, use compute_mknn_simple (cosine distance); if False, use mknn_score (L2+Euclidean)
         use_bulk_processing: If True, preprocess all images into RAM first, then bulk embed for speed
         streaming: If True, use streaming mode. If None, auto-detect based on cache.
+        show_progress: If True, show progress bars during processing
         
     Returns:
         dict: Results with mknn_score and metadata
@@ -139,7 +141,7 @@ def compare_models_mknn(
     
     # Special handling for desi-hsc-shuffled which needs model_alias during loading
     if dataset_alias == "desi-hsc-shuffled":
-        dataset, _ = load_dataset_with_info(dataset_alias, streaming=streaming, max_samples=max_samples, model_alias=model_alias)
+        dataset, _ = load_dataset_with_info(dataset_alias, streaming=streaming, max_samples=max_samples, model_alias=model_alias, show_progress=show_progress)
     else:
         dataset, _ = load_dataset_with_info(dataset_alias, streaming=streaming, max_samples=max_samples)
     

@@ -186,6 +186,7 @@ def load_desi_hsc_shuffled(
     model_alias: str = "dinov2-base",
     batch_size: int = 32,
     seed: int = 42,
+    show_progress: bool = False,
     **kwargs
 ):
     """
@@ -204,6 +205,7 @@ def load_desi_hsc_shuffled(
         model_alias: Model to use for embedding generation (default: "dinov2-base")
         batch_size: Batch size for embedding generation
         seed: Random seed for shuffling
+        show_progress: Whether to show progress bars (default: False)
         **kwargs: Additional arguments passed to load_dataset.
     
     Returns:
@@ -249,7 +251,8 @@ def load_desi_hsc_shuffled(
         processed_count = 0
         
         logging.info("Generating embeddings for HSC images...")
-        for idx, sample in enumerate(tqdm(hsc_only_dataset, desc="Processing HSC images")):
+        dataset_iter = tqdm(hsc_only_dataset, desc="Processing HSC images", disable=not show_progress)
+        for idx, sample in enumerate(dataset_iter):
             if max_samples and processed_count >= max_samples:
                 break
                 
