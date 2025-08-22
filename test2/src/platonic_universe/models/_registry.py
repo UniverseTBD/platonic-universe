@@ -14,25 +14,25 @@ MODEL_REGISTRY = {
         "source": "huggingface",
         "description": "I-JEPA ViT-G/16 model trained on ImageNet-22k.",
     },
-     "dinov2-small": {
-        "repo_id": "vit_base_patch14_dinov2.lvd142m",
-        "source": "timm",
-        "description": "DINOv2 small model from the timm library.",
+    "dinov2-small": {
+        "repo_id": "facebook/dinov2-with-registers-small",
+        "source": "huggingface",
+        "description": "DINOv2 small model with registers from HuggingFace.",
     },
-     "dinov2-base": {
-        "repo_id": "vit_base_patch14_dinov2.lvd142m",
-        "source": "timm",
-        "description": "DINOv2 base model from the timm library.",
+    "dinov2-base": {
+        "repo_id": "facebook/dinov2-with-registers-base",
+        "source": "huggingface",
+        "description": "DINOv2 base model with registers from HuggingFace.",
     },
-     "dinov2-large": {
-        "repo_id": "vit_base_patch14_dinov2.lvd142m",
-        "source": "timm",
-        "description": "DINOv2 large model from the timm library.",
+    "dinov2-large": {
+        "repo_id": "facebook/dinov2-with-registers-large",
+        "source": "huggingface",
+        "description": "DINOv2 large model with registers from HuggingFace.",
     },
     "dinov2-giant": {
-        "repo_id": "vit_base_patch14_dinov2.lvd142m",
-        "source": "timm",
-        "description": "DINOv2 huge model from the timm library.",
+        "repo_id": "facebook/dinov2-with-registers-giant",
+        "source": "huggingface",
+        "description": "DINOv2 giant model with registers from HuggingFace.",
     },
     "vit-base": {
         "repo_id": "google/vit-base-patch16-224-in21k",

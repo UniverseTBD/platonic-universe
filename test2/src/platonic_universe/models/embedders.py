@@ -48,6 +48,20 @@ class TimmDINOv2BatchEmbedder(BaseEmbedder):
             
         return batch_embeddings.cpu().numpy()
 
+class DINOv2WithRegistersBatchEmbedder(BaseEmbedder):
+    """Embedder for DINOv2 models with registers from HuggingFace."""
+    def embed_batch(self, images: list) -> np.ndarray:
+        if not images:
+            return np.array([])
+        
+        inputs = self.processor(images=images, return_tensors="pt").to(self.device)
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            # Use the CLS token (first token) as the embedding - standard for DINOv2
+            batch_embeddings = outputs.last_hidden_state[:, 0, :]
+        
+        return batch_embeddings.cpu().numpy()
+
 class ViTBatchEmbedder(BaseEmbedder):
     """Embedder for Vision Transformer models from Hugging Face."""
     def embed_batch(self, images: list) -> np.ndarray:
@@ -68,6 +82,8 @@ def get_embedder(loaded_model: LoadedModel) -> BaseEmbedder:
 
     if 'ijepa' in model_name:
         return IJEPABatchEmbedder(loaded_model)
+    elif 'dinov2-with-registers' in model_name or 'dinov2' in model_name:
+        return DINOv2WithRegistersBatchEmbedder(loaded_model)
     elif 'vit' in model_name or 'vision-transformer' in model_name:
         return ViTBatchEmbedder(loaded_model)
     elif loaded_model.transforms is not None: # Heuristic for timm models

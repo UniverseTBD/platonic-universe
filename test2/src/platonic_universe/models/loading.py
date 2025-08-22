@@ -6,10 +6,10 @@ from ._registry import MODEL_REGISTRY
 # Delay transformers imports until needed to allow environment setup first
 def _import_transformers():
     """Lazy import of transformers to allow environment setup first."""
-    global AutoProcessor, AutoModel, ViTImageProcessor, ViTModel
+    global AutoProcessor, AutoModel, ViTImageProcessor, ViTModel, AutoImageProcessor
     if 'AutoProcessor' not in globals():
-        from transformers import AutoProcessor, AutoModel, ViTImageProcessor, ViTModel
-    return AutoProcessor, AutoModel, ViTImageProcessor, ViTModel
+        from transformers import AutoProcessor, AutoModel, ViTImageProcessor, ViTModel, AutoImageProcessor
+    return AutoProcessor, AutoModel, ViTImageProcessor, ViTModel, AutoImageProcessor
 
 class LoadedModel:
     """A container for a loaded model and its specific preprocessor/transforms."""
@@ -50,12 +50,17 @@ def load_model_from_alias(alias: str) -> LoadedModel:
             
         elif source == "huggingface":
             # --- HUGGING FACE TRANSFORMERS LOGIC ---
-            AutoProcessor, AutoModel, ViTImageProcessor, ViTModel = _import_transformers()
+            AutoProcessor, AutoModel, ViTImageProcessor, ViTModel, AutoImageProcessor = _import_transformers()
             
-            # Use AutoModel/AutoProcessor for IJEPA models, specific classes for others
+            # Use specific classes for different model types
             if 'ijepa' in repo_id.lower():
                 model = AutoModel.from_pretrained(repo_id).to(device)
                 processor = AutoProcessor.from_pretrained(repo_id)
+                return LoadedModel(model=model, device=device, processor=processor)
+            elif 'dinov2' in repo_id.lower():
+                # Use AutoImageProcessor and AutoModel for DINOv2 with registers
+                model = AutoModel.from_pretrained(repo_id).to(device)
+                processor = AutoImageProcessor.from_pretrained(repo_id)
                 return LoadedModel(model=model, device=device, processor=processor)
             elif 'vit' in repo_id.lower():
                 model = ViTModel.from_pretrained(repo_id).to(device)
