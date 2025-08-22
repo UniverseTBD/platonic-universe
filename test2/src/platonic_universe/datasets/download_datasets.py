@@ -180,6 +180,149 @@ def load_hsc_sdss_crossmatched(streaming: bool = None, max_samples: int = None, 
         raise
 
 
+def load_desi_hsc_shuffled(
+    streaming: bool = None, 
+    max_samples: int = None,
+    model_alias: str = "dinov2-base",
+    batch_size: int = 32,
+    seed: int = 42,
+    **kwargs
+):
+    """
+    Load DESI-HSC dataset with HSC images and shuffled embeddings for MKNN baseline testing.
+    
+    This function:
+    1. Loads the DESI-HSC dataset 
+    2. Extracts only HSC images (discards DESI spectra)
+    3. Generates embeddings for HSC images using specified model
+    4. Creates shuffled embeddings by random permutation
+    5. Returns dataset with (image, shuffled_embedding) pairs
+    
+    Args:
+        streaming: If True, use streaming mode. If None, auto-detect based on cache.
+        max_samples: Maximum number of samples to load.
+        model_alias: Model to use for embedding generation (default: "dinov2-base")
+        batch_size: Batch size for embedding generation
+        seed: Random seed for shuffling
+        **kwargs: Additional arguments passed to load_dataset.
+    
+    Returns:
+        Dataset: Contains HSC images and shuffled embeddings
+    """
+    import torch
+    import numpy as np
+    from ..models.loading import load_model_from_alias
+    from ..models.embedders import get_embedder
+    from ..preprocessing.preparation import flux_to_pil
+    from tqdm.auto import tqdm
+    
+    load_dataset, Dataset, concatenate_datasets, IterableDataset = _import_datasets()
+    
+    logging.info("Loading DESI-HSC shuffled dataset...")
+    
+    # Load the base DESI-HSC dataset
+    base_dataset = load_dataset_from_alias("desi-hsc", streaming=streaming, max_samples=max_samples, **kwargs)
+    
+    # Extract only HSC images column
+    if hasattr(base_dataset, 'remove_columns'):
+        # For downloaded datasets
+        available_columns = base_dataset.column_names
+        columns_to_remove = [col for col in available_columns if col != 'image']
+        if columns_to_remove:
+            hsc_only_dataset = base_dataset.remove_columns(columns_to_remove)
+        else:
+            hsc_only_dataset = base_dataset
+    else:
+        # For streaming datasets, we'll process on-the-fly
+        hsc_only_dataset = base_dataset
+    
+    # Load model for embedding generation
+    logging.info(f"Loading model '{model_alias}' for embedding generation...")
+    model_obj = load_model_from_alias(model_alias)
+    embedder = get_embedder(model_obj)
+    
+    try:
+        # Generate embeddings for HSC images
+        embeddings = []
+        images = []
+        batch_images = []
+        processed_count = 0
+        
+        logging.info("Generating embeddings for HSC images...")
+        for idx, sample in enumerate(tqdm(hsc_only_dataset, desc="Processing HSC images")):
+            if max_samples and processed_count >= max_samples:
+                break
+                
+            try:
+                # Convert to PIL image
+                img = flux_to_pil(sample['image'])
+                if img is None:
+                    continue
+                    
+                batch_images.append(img)
+                images.append(sample['image'])  # Keep original image data
+                processed_count += 1
+                
+                # Process batch when full
+                if len(batch_images) >= batch_size:
+                    emb_batch = embedder.embed_batch(batch_images)
+                    for emb in emb_batch:
+                        embeddings.append(emb.flatten())
+                    batch_images = []
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        
+            except Exception as e:
+                logging.warning(f"Skipping image at index {idx} due to error: {e}")
+                continue
+        
+        # Process final batch
+        if batch_images:
+            emb_batch = embedder.embed_batch(batch_images)
+            for emb in emb_batch:
+                embeddings.append(emb.flatten())
+                
+        embeddings = np.array(embeddings)
+        
+        # Clean up model to free memory
+        del model_obj, embedder
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Create shuffled version of embeddings
+        rng = np.random.default_rng(seed)
+        shuffled_embeddings = embeddings.copy()
+        rng.shuffle(shuffled_embeddings)  # Permute rows randomly
+        
+        logging.info(f"Generated {len(embeddings)} embeddings and created shuffled version")
+        
+        # Create the final dataset with original and shuffled embeddings
+        sample_size = len(embeddings)
+        shuffled_dataset_dict = {
+            'original_embedding': embeddings[:sample_size].tolist(),
+            'shuffled_embedding': shuffled_embeddings[:sample_size].tolist()
+        }
+        
+        shuffled_dataset = Dataset.from_dict(shuffled_dataset_dict)
+        
+        logging.info(f"DESI-HSC shuffled dataset created with {len(shuffled_dataset)} samples")
+        return shuffled_dataset
+        
+    except Exception as e:
+        logging.error(f"Failed to create DESI-HSC shuffled dataset. Error: {e}")
+        # Clean up model if still loaded
+        try:
+            if 'model_obj' in locals():
+                del model_obj
+            if 'embedder' in locals():
+                del embedder
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except:
+            pass
+        raise
+
+
 # Dataset column mapping for auto-detection
 DATASET_COLUMN_MAPPING = {
     "desi-hsc": {
@@ -211,6 +354,11 @@ DATASET_COLUMN_MAPPING = {
         "columns": ("embedding",),
         "labels": ("sdss",),
         "loader": "standard"
+    },
+    "desi-hsc-shuffled": {
+        "columns": ("original_embedding", "shuffled_embedding"),
+        "labels": ("original", "shuffled"),
+        "loader": "desi_hsc_shuffled"
     }
 }
 
@@ -248,6 +396,8 @@ def load_dataset_with_info(dataset_alias: str, streaming: bool = None, max_sampl
     
     if dataset_info["loader"] == "hsc_sdss_crossmatched":
         dataset = load_hsc_sdss_crossmatched(streaming=streaming, max_samples=max_samples, **kwargs)
+    elif dataset_info["loader"] == "desi_hsc_shuffled":
+        dataset = load_desi_hsc_shuffled(streaming=streaming, max_samples=max_samples, **kwargs)
     else:
         dataset = load_dataset_from_alias(dataset_alias, streaming=streaming, max_samples=max_samples, **kwargs)
     

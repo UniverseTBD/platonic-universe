@@ -41,4 +41,9 @@ DATASET_REGISTRY = {
         "description": "SDSS interpolated embeddings dataset.",
         "default_split": "train",
     },
+    "desi-hsc-shuffled": {
+        "repo_id": "Smith42/desi_hsc_crossmatched",
+        "description": "DESI-HSC dataset with HSC images and shuffled embeddings for MKNN baseline testing.",
+        "default_split": "train",
+    },
 }

@@ -8,7 +8,7 @@ from ..datasets.download_datasets import load_dataset_from_alias, load_dataset_w
 from ..models.loading import load_model_from_alias
 from ..models.embedders import get_embedder
 from ..processing.main import process_paired_dataset
-from ..postprocessing.metrics import mknn_score, compute_mknn_simple
+from ..postprocessing.metrics import mknn_score, compute_mknn_simple, mknn_score_auto, compute_mknn_simple_auto
 from ..io.saving import save_analysis_results
 
 def run_comparison_pipeline(
@@ -136,7 +136,12 @@ def compare_models_mknn(
     
     # Auto-detect dataset type and columns
     dataset_info = get_dataset_info(dataset_alias)
-    dataset, _ = load_dataset_with_info(dataset_alias, streaming=streaming, max_samples=max_samples)
+    
+    # Special handling for desi-hsc-shuffled which needs model_alias during loading
+    if dataset_alias == "desi-hsc-shuffled":
+        dataset, _ = load_dataset_with_info(dataset_alias, streaming=streaming, max_samples=max_samples, model_alias=model_alias)
+    else:
+        dataset, _ = load_dataset_with_info(dataset_alias, streaming=streaming, max_samples=max_samples)
     
     model_obj = load_model_from_alias(model_alias)
     embedder = get_embedder(model_obj)
@@ -163,10 +168,10 @@ def compare_models_mknn(
 
         logging.info("--- Calculating Final MKNN Score ---")
         if use_simple_mknn:
-            score = compute_mknn_simple(embeddings_1, embeddings_2, k=k)
+            score = compute_mknn_simple_auto(embeddings_1, embeddings_2, k=k)
             mknn_method = "simple"
         else:
-            score = mknn_score(embeddings_1, embeddings_2, k=k)
+            score = mknn_score_auto(embeddings_1, embeddings_2, k=k)
             mknn_method = "standard"
         aligned_pairs_count = len(embeddings_1)
         
