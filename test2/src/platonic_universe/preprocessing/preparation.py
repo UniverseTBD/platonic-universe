@@ -239,33 +239,51 @@ def legacy_to_pil_using_lut(sample: dict, lut_path: str = None) -> Image.Image |
     Returns:
         PIL RGB image with R=z, G=r, B=g channels, or None if processing fails
     """
-    # Load normalization values
-    lut = load_normalization_lut(lut_path)
-    legacy_lut = lut["LEGACY"]
+    import logging
     
-    # Extract image data
-    img = sample.get("legacy_image") or sample.get("image")
-    if not isinstance(img, dict):
+    try:
+        # Load normalization values
+        lut = load_normalization_lut(lut_path)
+        legacy_lut = lut["LEGACY"]
+        
+        # Extract image data - handle different naming conventions
+        img = (sample.get("legacy_image") or 
+               sample.get("legacysurvey_image") or 
+               sample.get("image"))
+        if not isinstance(img, dict):
+            logging.debug(f"Legacy LUT: No valid image dict found. Sample keys: {list(sample.keys())}")
+            return None
+        
+        logging.debug(f"Legacy LUT: Found image dict with keys: {list(img.keys())}")
+        
+        # Extract g, r, z bands (Legacy uses same bands as HSC)
+        g2 = _slice_band_from_image(img, "g")
+        r2 = _slice_band_from_image(img, "r")
+        z2 = _slice_band_from_image(img, "z")
+        
+        logging.debug(f"Legacy LUT: Band extraction - g: {g2 is not None}, r: {r2 is not None}, z: {z2 is not None}")
+        
+        if g2 is None or r2 is None or z2 is None:
+            return None
+        
+        # Apply LUT normalization
+        g8 = _scale_with_lut(g2, *legacy_lut["g"])
+        r8 = _scale_with_lut(r2, *legacy_lut["r"])
+        z8 = _scale_with_lut(z2, *legacy_lut["z"])
+        
+        logging.debug(f"Legacy LUT: Scaling - g: {g8 is not None}, r: {r8 is not None}, z: {z8 is not None}")
+        
+        if g8 is None or r8 is None or z8 is None:
+            return None
+        
+        # Center crop and create RGB
+        z8c, r8c, g8c = _center_crop_to_smallest(z8, r8, g8)
+        rgb = np.stack([z8c, r8c, g8c], axis=2)  # R=z, G=r, B=g
+        return Image.fromarray(rgb, "RGB")
+        
+    except Exception as e:
+        logging.debug(f"Legacy LUT processing failed: {e}")
         return None
-    
-    # Extract g, r, z bands (Legacy uses same bands as HSC)
-    g2 = _slice_band_from_image(img, "g")
-    r2 = _slice_band_from_image(img, "r")
-    z2 = _slice_band_from_image(img, "z")
-    if g2 is None or r2 is None or z2 is None:
-        return None
-    
-    # Apply LUT normalization
-    g8 = _scale_with_lut(g2, *legacy_lut["g"])
-    r8 = _scale_with_lut(r2, *legacy_lut["r"])
-    z8 = _scale_with_lut(z2, *legacy_lut["z"])
-    if g8 is None or r8 is None or z8 is None:
-        return None
-    
-    # Center crop and create RGB
-    z8c, r8c, g8c = _center_crop_to_smallest(z8, r8, g8)
-    rgb = np.stack([z8c, r8c, g8c], axis=2)  # R=z, G=r, B=g
-    return Image.fromarray(rgb, "RGB")
 
 
 def extract_desi_flux(sample: dict):

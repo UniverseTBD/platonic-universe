@@ -4,7 +4,7 @@ build-backend="hatchling.build"
 
 [project]
 name="platonic-universe"
-version="0.1.4"
+version="0.1.6"
 authors=[
     {name="Kshitij Duraphe", email="kshitijduraphe5@gmail.com"},
 ]

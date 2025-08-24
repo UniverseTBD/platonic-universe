@@ -6,9 +6,12 @@ from ._registry import DATASET_REGISTRY # Import the registry from the local fil
 # Delay HuggingFace imports until needed to allow environment setup first
 def _import_datasets():
     """Lazy import of datasets to allow environment setup first."""
-    global load_dataset, Dataset, concatenate_datasets, IterableDataset
+    global load_dataset, Dataset, concatenate_datasets, IterableDataset, disable_caching
     if 'load_dataset' not in globals():
-        from datasets import load_dataset, Dataset, concatenate_datasets, IterableDataset
+        from datasets import load_dataset, Dataset, concatenate_datasets, IterableDataset, disable_caching
+        # Disable caching to prevent large intermediate cache files
+        disable_caching()
+        logging.info("HuggingFace datasets caching disabled to prevent large cache files")
     return load_dataset, Dataset, concatenate_datasets, IterableDataset
 
 def list_available_datasets():
@@ -180,6 +183,140 @@ def load_hsc_sdss_crossmatched(streaming: bool = None, max_samples: int = None, 
         raise
 
 
+def load_desi_hsc_crossmatched(
+    streaming: bool = None, 
+    max_samples: int = None, 
+    **kwargs
+):
+    """
+    Load DESI-HSC crossmatched data with pre-computed DESI embeddings.
+    
+    This concatenates:
+    - Smith42/desi_hsc_crossmatched (HSC images + DESI spectra) 
+    - Shashwat20/SDSS_Interpolated (pre-computed DESI embeddings)
+    
+    Args:
+        streaming: If True, use streaming mode. If None, auto-detect based on cache.
+        max_samples: Maximum number of samples to load.
+        **kwargs: Additional arguments passed to load_dataset.
+    
+    Returns:
+        Dataset or IterableDataset: Combined dataset with HSC images and DESI embeddings
+    """
+    load_dataset, Dataset, concatenate_datasets, IterableDataset = _import_datasets()
+    
+    logging.info("Loading DESI-HSC crossmatched data with pre-computed embeddings...")
+    
+    # Auto-detect streaming for both datasets
+    if streaming is None:
+        cache_dir = kwargs.get('cache_dir')
+        desi_hsc_cached = _check_dataset_exists_locally("Smith42/desi_hsc_crossmatched", cache_dir)
+        desi_interp_cached = _check_dataset_exists_locally("Shashwat20/SDSS_Interpolated", cache_dir)
+        streaming = not (desi_hsc_cached and desi_interp_cached)
+        
+        if streaming:
+            logging.info("One or both DESI-HSC datasets not in cache, using streaming mode")
+        else:
+            logging.info("Both DESI-HSC datasets found in cache, using downloaded versions")
+    
+    try:
+        if streaming:
+            # For streaming mode, return both datasets separately for manual handling
+            kwargs['streaming'] = True
+            desi_hsc = load_dataset("Smith42/desi_hsc_crossmatched", split="train", **kwargs)
+            desi_embeddings = load_dataset("Shashwat20/SDSS_Interpolated", split="train", **kwargs)
+            
+            if max_samples is not None:
+                logging.info(f"Limiting each stream to {max_samples} samples")
+                desi_hsc = desi_hsc.take(max_samples)
+                desi_embeddings = desi_embeddings.take(max_samples)
+            
+            logging.info("DESI-HSC crossmatched streaming initialized successfully.")
+            # Return a tuple for special handling in streaming mode
+            return (desi_hsc, desi_embeddings)
+        else:
+            # Load downloaded datasets
+            kwargs.pop('streaming', None)
+            desi_hsc = load_dataset("Smith42/desi_hsc_crossmatched", split="train", **kwargs)
+            desi_embeddings = load_dataset("Shashwat20/SDSS_Interpolated", split="train", **kwargs)
+            
+            if max_samples is not None:
+                logging.info(f"Selecting first {max_samples} samples from each dataset")
+                desi_hsc = desi_hsc.select(range(min(max_samples, len(desi_hsc))))
+                desi_embeddings = desi_embeddings.select(range(min(max_samples, len(desi_embeddings))))
+            
+            # Concatenate along axis=1 (columns) 
+            combined = concatenate_datasets([desi_hsc, desi_embeddings], axis=1)
+            
+            logging.info("DESI-HSC crossmatched data with embeddings loaded successfully.")
+            return combined
+            
+    except Exception as e:
+        logging.error(f"Failed to load DESI-HSC crossmatched data. Error: {e}")
+        raise
+
+
+def load_hsc_legacy_crossmatched(
+    streaming: bool = None, 
+    max_samples: int = None, 
+    **kwargs
+):
+    """
+    Load HSC-Legacy Survey crossmatched data.
+    
+    This loads the Smith42/legacysurvey_hsc_crossmatched dataset which contains:
+    - hsc_image: HSC survey images
+    - legacysurvey_image: Legacy Survey images 
+    
+    Args:
+        streaming: If True, use streaming mode. If None, auto-detect based on cache.
+        max_samples: Maximum number of samples to load.
+        **kwargs: Additional arguments passed to load_dataset.
+    
+    Returns:
+        Dataset or IterableDataset: Dataset with HSC and Legacy Survey images
+    """
+    load_dataset, Dataset, concatenate_datasets, IterableDataset = _import_datasets()
+    
+    logging.info("Loading HSC-Legacy Survey crossmatched data...")
+    
+    # Auto-detect streaming mode
+    if streaming is None:
+        cache_dir = kwargs.get('cache_dir')
+        if _check_dataset_exists_locally("Smith42/legacysurvey_hsc_crossmatched", cache_dir):
+            streaming = False
+            logging.info("HSC-Legacy dataset found in cache, using downloaded version")
+        else:
+            streaming = True
+            logging.info("HSC-Legacy dataset not in cache, using streaming mode")
+    
+    try:
+        if streaming:
+            kwargs['streaming'] = True
+            dataset = load_dataset("Smith42/legacysurvey_hsc_crossmatched", split="train", **kwargs)
+            
+            if max_samples is not None:
+                logging.info(f"Limiting stream to {max_samples} samples")
+                dataset = dataset.take(max_samples)
+                
+            logging.info("HSC-Legacy crossmatched streaming initialized successfully.")
+            return dataset
+        else:
+            kwargs.pop('streaming', None)
+            dataset = load_dataset("Smith42/legacysurvey_hsc_crossmatched", split="train", **kwargs)
+            
+            if max_samples is not None:
+                logging.info(f"Selecting first {max_samples} samples from dataset")
+                dataset = dataset.select(range(min(max_samples, len(dataset))))
+                
+            logging.info("HSC-Legacy crossmatched data loaded successfully.")
+            return dataset
+            
+    except Exception as e:
+        logging.error(f"Failed to load HSC-Legacy crossmatched data. Error: {e}")
+        raise
+
+
 def load_desi_hsc_shuffled(
     streaming: bool = None, 
     max_samples: int = None,
@@ -329,9 +466,9 @@ def load_desi_hsc_shuffled(
 # Dataset column mapping for auto-detection
 DATASET_COLUMN_MAPPING = {
     "desi-hsc": {
-        "columns": ("image", "spectrum"),
+        "columns": ("image", "embedding"),
         "labels": ("hsc", "desi"),
-        "loader": "standard"
+        "loader": "desi_hsc_crossmatched"
     },
     "hsc-sdss": {
         "columns": ("hsc_image", "embedding"), 
@@ -344,9 +481,9 @@ DATASET_COLUMN_MAPPING = {
         "loader": "standard"
     },
     "hsc-legacy": {
-        "columns": ("hsc_image", "legacy_image"),
-        "labels": ("hsc", "legacy"),
-        "loader": "standard"
+        "columns": ("hsc_image", "legacysurvey_image"),
+        "labels": ("hsc", "legacysurvey"),
+        "loader": "hsc_legacy_crossmatched"
     },
     "desi-spectroscopic": {
         "columns": ("embeddings",),
@@ -399,6 +536,10 @@ def load_dataset_with_info(dataset_alias: str, streaming: bool = None, max_sampl
     
     if dataset_info["loader"] == "hsc_sdss_crossmatched":
         dataset = load_hsc_sdss_crossmatched(streaming=streaming, max_samples=max_samples, **kwargs)
+    elif dataset_info["loader"] == "desi_hsc_crossmatched":
+        dataset = load_desi_hsc_crossmatched(streaming=streaming, max_samples=max_samples, **kwargs)
+    elif dataset_info["loader"] == "hsc_legacy_crossmatched":
+        dataset = load_hsc_legacy_crossmatched(streaming=streaming, max_samples=max_samples, **kwargs)
     elif dataset_info["loader"] == "desi_hsc_shuffled":
         dataset = load_desi_hsc_shuffled(streaming=streaming, max_samples=max_samples, **kwargs)
     else:

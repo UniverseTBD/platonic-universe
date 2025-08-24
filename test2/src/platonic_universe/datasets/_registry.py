@@ -7,8 +7,8 @@ DATASET_REGISTRY = {
         "default_split": "train",
     },
     "hsc-legacy": {
-        "repo_id": "Smith42/jwst_hsc_crossmatched",
-        "description": "Cross-matched catalog of JWST and HSC data.",
+        "repo_id": "Smith42/legacysurvey_hsc_crossmatched",
+        "description": "Cross-matched catalog of Legacy Survey and HSC data (176GB dataset).",
         "default_split": "train",
     },
     "desi-hsc": {

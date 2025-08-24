@@ -7,7 +7,7 @@ from ..models.embedders import BaseEmbedder
 from ..preprocessing.preparation import flux_to_pil, image_to_pil_with_lut
 
 def process_paired_dataset(
-    dataset: Dataset,
+    dataset,  # Can be Dataset or tuple of datasets for streaming DESI-HSC
     embedder: BaseEmbedder,
     column1: str,
     label1: str,
@@ -34,6 +34,14 @@ def process_paired_dataset(
     Returns:
         A tuple containing (embeddings1, lookup1, embeddings2, lookup2).
     """
+    # Handle special case for streaming DESI-HSC (tuple of two datasets)
+    if isinstance(dataset, tuple) and len(dataset) == 2:
+        logging.info("Detected streaming DESI-HSC tuple, processing separately...")
+        return _process_streaming_desi_hsc(
+            dataset[0], dataset[1], embedder, column1, label1, column2, label2, 
+            batch_size, max_samples, dataset_alias, use_lut_normalization
+        )
+    
     logging.info(f"Processing paired data from columns '{column1}' and '{column2}'...")
     
     # Track whether columns need embedding (vs pre-computed)
@@ -80,7 +88,12 @@ def process_paired_dataset(
                 # Pre-computed embeddings
                 if data1 is None:
                     continue
-                batch1_images.append(np.array(data1))
+                # Handle different formats of pre-computed embeddings
+                if isinstance(data1, (list, tuple)):
+                    emb_array = np.array(data1, dtype=np.float32)
+                else:
+                    emb_array = np.array(data1, dtype=np.float32)
+                batch1_images.append(emb_array)
             
             # Convert column2 to appropriate format
             if needs_embedding2:
@@ -97,7 +110,12 @@ def process_paired_dataset(
                 # Pre-computed embeddings
                 if data2 is None:
                     continue
-                batch2_images.append(np.array(data2))
+                # Handle different formats of pre-computed embeddings
+                if isinstance(data2, (list, tuple)):
+                    emb_array = np.array(data2, dtype=np.float32)
+                else:
+                    emb_array = np.array(data2, dtype=np.float32)
+                batch2_images.append(emb_array)
 
             batch_indices.append(idx)
             processed_pairs += 1
@@ -114,15 +132,15 @@ def process_paired_dataset(
                 else:
                     emb_batch2 = np.array(batch2_images)
                     
-                    for i in range(len(emb_batch1)):
-                        lookup1.append({'dataset_index': batch_indices[i], 'type': label1, 'embedding_index': len(embeddings1)})
-                        embeddings1.append(emb_batch1[i].flatten())
-                        
-                        lookup2.append({'dataset_index': batch_indices[i], 'type': label2, 'embedding_index': len(embeddings2)})
-                        embeddings2.append(emb_batch2[i].flatten())
+                for i in range(len(emb_batch1)):
+                    lookup1.append({'dataset_index': batch_indices[i], 'type': label1, 'embedding_index': len(embeddings1)})
+                    embeddings1.append(emb_batch1[i].flatten())
+                    
+                    lookup2.append({'dataset_index': batch_indices[i], 'type': label2, 'embedding_index': len(embeddings2)})
+                    embeddings2.append(emb_batch2[i].flatten())
 
-                    batch1_images, batch2_images, batch_indices = [], [], []
-                    if torch.cuda.is_available(): torch.cuda.empty_cache()
+                batch1_images, batch2_images, batch_indices = [], [], []
+                if torch.cuda.is_available(): torch.cuda.empty_cache()
         except Exception as e:
             logging.warning(f"Skipping pair at index {idx} due to error: {e}")
 
@@ -185,35 +203,51 @@ def _process_paired_dataset_bulk(
             data2 = sample[column2]
             
             # Process column1
+            processed_data1 = None
             if needs_embedding1:
                 if use_lut_normalization and dataset_alias:
                     img1 = image_to_pil_with_lut(sample, column1, dataset_alias)
                 else:
                     img1 = flux_to_pil(data1)
                 if img1 is None:
-                    continue
-                all_images1.append(img1)
+                    continue  # Skip this pair entirely
+                processed_data1 = img1
             else:
                 if data1 is None:
-                    continue
-                all_images1.append(np.array(data1))
+                    continue  # Skip this pair entirely
+                # Handle different formats of pre-computed embeddings
+                if isinstance(data1, (list, tuple)):
+                    emb_array = np.array(data1, dtype=np.float32)
+                else:
+                    emb_array = np.array(data1, dtype=np.float32)
+                processed_data1 = emb_array
             
             # Process column2
+            processed_data2 = None
             if needs_embedding2:
                 if use_lut_normalization and dataset_alias:
                     img2 = image_to_pil_with_lut(sample, column2, dataset_alias)
                 else:
                     img2 = flux_to_pil(data2)
                 if img2 is None:
-                    continue
-                all_images2.append(img2)
+                    continue  # Skip this pair entirely
+                processed_data2 = img2
             else:
                 if data2 is None:
-                    continue
-                all_images2.append(np.array(data2))
+                    continue  # Skip this pair entirely
+                # Handle different formats of pre-computed embeddings
+                if isinstance(data2, (list, tuple)):
+                    emb_array = np.array(data2, dtype=np.float32)
+                else:
+                    emb_array = np.array(data2, dtype=np.float32)
+                processed_data2 = emb_array
             
-            all_indices.append(idx)
-            processed_pairs += 1
+            # Only add to lists if both data items are valid
+            if processed_data1 is not None and processed_data2 is not None:
+                all_images1.append(processed_data1)
+                all_images2.append(processed_data2)
+                all_indices.append(idx)
+                processed_pairs += 1
             
         except Exception as e:
             logging.warning(f"Skipping pair at index {idx} due to error: {e}")
@@ -249,8 +283,9 @@ def _process_paired_dataset_bulk(
         else:
             emb_batch2 = np.array(batch_imgs2)
         
-        # Store results
-        for i in range(len(emb_batch1)):
+        # Store results - ensure indices align properly
+        actual_batch_size = min(len(emb_batch1), len(emb_batch2), len(batch_indices))
+        for i in range(actual_batch_size):
             lookup1.append({
                 'dataset_index': batch_indices[i], 
                 'type': label1, 
@@ -270,4 +305,100 @@ def _process_paired_dataset_bulk(
             torch.cuda.empty_cache()
     
     logging.info(f"Bulk processing complete: {len(embeddings1)} aligned pairs embedded")
+    return np.array(embeddings1), lookup1, np.array(embeddings2), lookup2
+
+
+def _process_streaming_desi_hsc(
+    desi_hsc_dataset,
+    desi_embeddings_dataset, 
+    embedder: BaseEmbedder,
+    column1: str,
+    label1: str,
+    column2: str,
+    label2: str,
+    batch_size: int,
+    max_samples: int,
+    dataset_alias: str,
+    use_lut_normalization: bool
+) -> tuple[np.ndarray, list, np.ndarray, list]:
+    """
+    Process streaming DESI-HSC datasets separately and zip them together.
+    """
+    logging.info("Processing streaming DESI-HSC datasets...")
+    
+    embeddings1, embeddings2 = [], []
+    lookup1, lookup2 = [], []
+    
+    batch1_images, batch2_data = [], []
+    batch_indices = []
+    
+    processed_pairs = 0
+    
+    # Zip the two streaming datasets together
+    dataset_zip = zip(desi_hsc_dataset, desi_embeddings_dataset)
+    for idx, (desi_sample, emb_sample) in enumerate(tqdm(dataset_zip, desc="Processing DESI-HSC pairs")):
+        if max_samples and processed_pairs >= max_samples:
+            break
+            
+        try:
+            # Process HSC image (column1 = "image")
+            if column1 == "image":
+                data1 = desi_sample["image"]
+                if use_lut_normalization and dataset_alias:
+                    img1 = image_to_pil_with_lut(desi_sample, column1, dataset_alias)
+                else:
+                    img1 = flux_to_pil(data1)
+                if img1 is None:
+                    continue
+                batch1_images.append(img1)
+            
+            # Process DESI embedding (column2 = "embedding") 
+            if column2 == "embedding":
+                data2 = emb_sample["embedding"]
+                if data2 is None:
+                    continue
+                # Handle different formats of pre-computed embeddings
+                if isinstance(data2, (list, tuple)):
+                    emb_array = np.array(data2, dtype=np.float32)
+                else:
+                    emb_array = np.array(data2, dtype=np.float32)
+                batch2_data.append(emb_array)
+                
+            batch_indices.append(idx)
+            processed_pairs += 1
+            
+            # Process batch when full
+            if len(batch1_images) >= batch_size:
+                # Embed HSC images
+                emb_batch1 = embedder.embed_batch(batch1_images)
+                # DESI embeddings are already computed
+                emb_batch2 = np.array(batch2_data)
+                
+                for i in range(len(emb_batch1)):
+                    lookup1.append({'dataset_index': batch_indices[i], 'type': label1, 'embedding_index': len(embeddings1)})
+                    embeddings1.append(emb_batch1[i].flatten())
+                    
+                    lookup2.append({'dataset_index': batch_indices[i], 'type': label2, 'embedding_index': len(embeddings2)})
+                    embeddings2.append(emb_batch2[i].flatten())
+                
+                batch1_images, batch2_data, batch_indices = [], [], []
+                if torch.cuda.is_available(): 
+                    torch.cuda.empty_cache()
+                    
+        except Exception as e:
+            logging.warning(f"Skipping pair at index {idx} due to error: {e}")
+    
+    # Process final batch
+    if batch1_images:
+        emb_batch1 = embedder.embed_batch(batch1_images)
+        emb_batch2 = np.array(batch2_data)
+        
+        for i in range(len(emb_batch1)):
+            lookup1.append({'dataset_index': batch_indices[i], 'type': label1, 'embedding_index': len(embeddings1)})
+            embeddings1.append(emb_batch1[i].flatten())
+            
+            lookup2.append({'dataset_index': batch_indices[i], 'type': label2, 'embedding_index': len(embeddings2)})
+            embeddings2.append(emb_batch2[i].flatten())
+    
+    logging.info(f"Successfully processed {len(embeddings1)} aligned pairs from streaming DESI-HSC.")
     return np.array(embeddings1), lookup1, np.array(embeddings2), lookup2
