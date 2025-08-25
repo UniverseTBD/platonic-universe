@@ -378,13 +378,14 @@ def compute_mknn_simple_memory_efficient(
     return score
 
 
-def mknn_score_auto(Z1: np.ndarray, Z2: np.ndarray, k: int = 10, **kwargs) -> float:
+def mknn_score_auto(Z1: np.ndarray, Z2: np.ndarray, k: int = 10, use_sklearn: bool = None, **kwargs) -> float:
     """
-    Automatically choose between standard and memory-efficient MKNN based on data size.
+    Automatically choose between standard, memory-efficient, and sklearn MKNN based on data size.
     
     Args:
         Z1, Z2: Embedding arrays
         k: Number of neighbors  
+        use_sklearn: If True, force sklearn implementation; if None, auto-select
         **kwargs: Additional arguments passed to chosen implementation
         
     Returns:
@@ -397,13 +398,65 @@ def mknn_score_auto(Z1: np.ndarray, Z2: np.ndarray, k: int = 10, **kwargs) -> fl
     # Plus distance matrix of N² * 8 bytes  
     estimated_memory_gb = (2 * N * embedding_dim * 8 + N * N * 8) / (1024**3)
     
-    # Use memory-efficient version for datasets > 2GB estimated memory
-    if estimated_memory_gb > 2.0:
+    # Force sklearn implementation if requested
+    if use_sklearn:
+        logging.info(f"Using sklearn MKNN implementation (forced)")
+        return mknn_score_sklearn(Z1, Z2, k)
+    
+    # Auto-select based on dataset size
+    if estimated_memory_gb > 10.0:
+        # For very large datasets (>10GB), try sklearn first as it often works better
+        logging.info(f"Very large dataset detected ({estimated_memory_gb:.1f}GB estimated), trying sklearn MKNN first")
+        try:
+            return mknn_score_sklearn(Z1, Z2, k)
+        except Exception as e:
+            logging.warning(f"Sklearn MKNN failed: {e}. Falling back to memory-efficient implementation")
+            return mknn_score_memory_efficient(Z1, Z2, k, **kwargs)
+    elif estimated_memory_gb > 2.0:
         logging.info(f"Large dataset detected ({estimated_memory_gb:.1f}GB estimated), using memory-efficient MKNN")
         return mknn_score_memory_efficient(Z1, Z2, k, **kwargs)
     else:
         logging.info(f"Small dataset detected ({estimated_memory_gb:.1f}GB estimated), using standard MKNN") 
         return mknn_score(Z1, Z2, k, **kwargs)
+
+
+def mknn_score_sklearn(Z1: np.ndarray, Z2: np.ndarray, k: int = 10) -> float:
+    """
+    Simple and efficient MKNN implementation using sklearn's NearestNeighbors.
+    This is the approach that worked for large datasets when memory-efficient chunking failed.
+    
+    Based on implementation that successfully processed Legacy Survey/HSC cross-matched data.
+    
+    Args:
+        Z1, Z2: Embedding matrices of shape (N, D)
+        k: Number of nearest neighbors
+    
+    Returns:
+        mKNN score between 0 and 1
+    """
+    logging.info(f"Computing sklearn-based MKNN score with k={k}...")
+    
+    assert Z1.shape[0] == Z2.shape[0], "Row-aligned arrays required."
+    n = min(len(Z1), len(Z2))
+    k = min(k, n - 1)
+    
+    if n < 2:
+        logging.warning("Too few samples for MKNN computation.")
+        return 0.0
+    
+    # Find k-nearest neighbors for each modality using cosine similarity
+    nn1 = NearestNeighbors(n_neighbors=k, metric="cosine").fit(Z1)\
+            .kneighbors(return_distance=False)
+    nn2 = NearestNeighbors(n_neighbors=k, metric="cosine").fit(Z2)\
+            .kneighbors(return_distance=False)
+    
+    # Compute overlap for each sample
+    overlaps = [len(set(neighbors1).intersection(set(neighbors2))) / k 
+                for neighbors1, neighbors2 in zip(nn1, nn2)]
+    
+    score = float(np.mean(overlaps))
+    logging.info(f"Sklearn MKNN computation complete. Score: {score:.4f}")
+    return score
 
 
 def compute_mknn_simple_auto(Z1: np.ndarray, Z2: np.ndarray, k: int = 10, **kwargs) -> float:

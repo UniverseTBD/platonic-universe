@@ -11,7 +11,7 @@ from ..datasets.download_datasets import load_dataset_from_alias, load_dataset_w
 from ..models.loading import load_model_from_alias
 from ..models.embedders import get_embedder
 from ..processing.main import process_paired_dataset
-from ..postprocessing.metrics import mknn_score, compute_mknn_simple, mknn_score_auto, compute_mknn_simple_auto
+from ..postprocessing.metrics import mknn_score, compute_mknn_simple, mknn_score_auto, compute_mknn_simple_auto, mknn_score_sklearn
 from ..io.saving import save_analysis_results
 
 def run_comparison_pipeline(
@@ -118,7 +118,8 @@ def compare_models_mknn(
     streaming: bool = None,
     show_progress: bool = False,
     save_results: bool = False,
-    results_file: str = "./mknn_results.json"
+    results_file: str = "./mknn_results.json",
+    use_sklearn_mknn: bool = False
 ) -> dict:
     """
     Compare embeddings from two modalities using mutual k-NN.
@@ -137,6 +138,7 @@ def compare_models_mknn(
         show_progress: If True, show progress bars during processing
         save_results: If True, save MKNN results to file (default: False)
         results_file: Path to save results file (default: "./mknn_results.json")
+        use_sklearn_mknn: If True, use sklearn-based MKNN implementation (friend's approach)
         
     Returns:
         dict: Results with mknn_score and metadata
@@ -176,12 +178,15 @@ def compare_models_mknn(
         if torch.cuda.is_available(): torch.cuda.empty_cache()
 
         logging.info("--- Calculating Final MKNN Score ---")
-        if use_simple_mknn:
+        if use_sklearn_mknn:
+            score = mknn_score_sklearn(embeddings_1, embeddings_2, k=k)
+            mknn_method = "sklearn"
+        elif use_simple_mknn:
             score = compute_mknn_simple_auto(embeddings_1, embeddings_2, k=k)
             mknn_method = "simple"
         else:
-            score = mknn_score_auto(embeddings_1, embeddings_2, k=k)
-            mknn_method = "standard"
+            score = mknn_score_auto(embeddings_1, embeddings_2, k=k, use_sklearn=use_sklearn_mknn)
+            mknn_method = "auto"
         aligned_pairs_count = len(embeddings_1)
         
     elif len(columns) == 1:

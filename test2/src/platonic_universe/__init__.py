@@ -41,7 +41,7 @@ _auto_setup_hf_environment()
 # Now import everything else (with proper environment already set)
 from .config import setup_hf_environment
 from .pipelines.main import run_multi_model_comparison, compare_models_mknn
-from .datasets.download_datasets import load_dataset_with_info, load_dataset_from_alias
+from .datasets.download_datasets import load_dataset_with_info, load_dataset_from_alias, set_datasets_caching
 
 def setup_cache_dir(cache_dir):
     """
@@ -78,4 +78,5 @@ __all__ = [
     "compare_models_mknn",
     "load_dataset_with_info",
     "load_dataset_from_alias",
+    "set_datasets_caching",
 ]

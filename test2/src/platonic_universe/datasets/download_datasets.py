@@ -3,15 +3,42 @@ import os
 from pathlib import Path
 from ._registry import DATASET_REGISTRY # Import the registry from the local file
 
+# Global flag to control caching behavior
+_DISABLE_DATASETS_CACHE = True
+
+def set_datasets_caching(enabled: bool = True):
+    """
+    Enable or disable HuggingFace datasets caching.
+    
+    Args:
+        enabled: If True, enable caching (default). If False, disable caching.
+    """
+    global _DISABLE_DATASETS_CACHE
+    _DISABLE_DATASETS_CACHE = not enabled
+    
+    # If datasets are already imported, apply the setting immediately
+    if 'load_dataset' in globals():
+        from datasets import disable_caching, enable_caching
+        if _DISABLE_DATASETS_CACHE:
+            disable_caching()
+            logging.info("HuggingFace datasets caching disabled")
+        else:
+            enable_caching()
+            logging.info("HuggingFace datasets caching enabled")
+
 # Delay HuggingFace imports until needed to allow environment setup first
 def _import_datasets():
     """Lazy import of datasets to allow environment setup first."""
     global load_dataset, Dataset, concatenate_datasets, IterableDataset, disable_caching
     if 'load_dataset' not in globals():
-        from datasets import load_dataset, Dataset, concatenate_datasets, IterableDataset, disable_caching
-        # Disable caching to prevent large intermediate cache files
-        disable_caching()
-        logging.info("HuggingFace datasets caching disabled to prevent large cache files")
+        from datasets import load_dataset, Dataset, concatenate_datasets, IterableDataset, disable_caching, enable_caching
+        # Apply caching setting
+        if _DISABLE_DATASETS_CACHE:
+            disable_caching()
+            logging.info("HuggingFace datasets caching disabled to prevent large cache files")
+        else:
+            enable_caching()
+            logging.info("HuggingFace datasets caching enabled")
     return load_dataset, Dataset, concatenate_datasets, IterableDataset
 
 def list_available_datasets():

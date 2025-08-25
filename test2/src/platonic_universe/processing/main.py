@@ -34,13 +34,26 @@ def process_paired_dataset(
     Returns:
         A tuple containing (embeddings1, lookup1, embeddings2, lookup2).
     """
-    # Handle special case for streaming DESI-HSC (tuple of two datasets)
+    # Handle special case for streaming datasets that return tuples
     if isinstance(dataset, tuple) and len(dataset) == 2:
-        logging.info("Detected streaming DESI-HSC tuple, processing separately...")
-        return _process_streaming_desi_hsc(
-            dataset[0], dataset[1], embedder, column1, label1, column2, label2, 
-            batch_size, max_samples, dataset_alias, use_lut_normalization
-        )
+        logging.info(f"🔍 TUPLE DETECTED: dataset_alias='{dataset_alias}', columns=({column1}, {column2})")
+        
+        # Check if this is HSC-SDSS first (more specific)
+        if dataset_alias == "hsc-sdss":
+            logging.info("✅ Processing HSC-SDSS streaming tuple...")
+            return _process_streaming_hsc_sdss(
+                dataset[0], dataset[1], embedder, column1, label1, column2, label2, 
+                batch_size, max_samples, dataset_alias, use_lut_normalization
+            )
+        # Then check DESI-HSC variants
+        elif dataset_alias.startswith("desi-hsc"):
+            logging.info("✅ Processing DESI-HSC streaming tuple...")
+            return _process_streaming_desi_hsc(
+                dataset[0], dataset[1], embedder, column1, label1, column2, label2, 
+                batch_size, max_samples, dataset_alias, use_lut_normalization
+            )
+        else:
+            logging.warning(f"Unknown tuple dataset format for '{dataset_alias}', attempting standard processing...")
     
     logging.info(f"Processing paired data from columns '{column1}' and '{column2}'...")
     
@@ -306,6 +319,135 @@ def _process_paired_dataset_bulk(
     
     logging.info(f"Bulk processing complete: {len(embeddings1)} aligned pairs embedded")
     return np.array(embeddings1), lookup1, np.array(embeddings2), lookup2
+
+
+def _process_streaming_hsc_sdss(
+    hsc_sdss_dataset,
+    sdss_embeddings_dataset, 
+    embedder: BaseEmbedder,
+    column1: str,
+    label1: str,
+    column2: str,
+    label2: str,
+    batch_size: int,
+    max_samples: int,
+    dataset_alias: str,
+    use_lut_normalization: bool
+) -> tuple[np.ndarray, list, np.ndarray, list]:
+    """
+    Process streaming HSC-SDSS datasets separately and zip them together.
+    """
+    logging.info("Processing streaming HSC-SDSS datasets...")
+    
+    embeddings1, embeddings2 = [], []
+    lookup1, lookup2 = [], []
+    
+    batch1_images, batch2_data = [], []
+    batch_indices = []
+    
+    processed_pairs = 0
+    
+    # Zip the two streaming datasets together
+    dataset_zip = zip(hsc_sdss_dataset, sdss_embeddings_dataset)
+    for idx, (hsc_sample, sdss_sample) in enumerate(tqdm(dataset_zip, desc="Processing HSC-SDSS pairs")):
+        if max_samples and processed_pairs >= max_samples:
+            break
+            
+        try:
+            # Process HSC image (column1 = "hsc_image" but actual key is "image")
+            if column1 == "hsc_image":
+                if "image" in hsc_sample:
+                    data1 = hsc_sample["image"]
+                else:
+                    logging.warning(f"'image' key not found in HSC sample. Available keys: {list(hsc_sample.keys())}")
+                    continue
+                if use_lut_normalization and dataset_alias:
+                    img1 = image_to_pil_with_lut(hsc_sample, column1, dataset_alias)
+                else:
+                    img1 = flux_to_pil(data1)
+                if img1 is None:
+                    continue
+                batch1_images.append(img1)
+            
+            # Process SDSS embedding (column2 = "embedding") 
+            if column2 == "embedding":
+                data2 = sdss_sample["embedding"]
+                if data2 is None:
+                    continue
+                # Handle different formats of pre-computed embeddings
+                if isinstance(data2, (list, tuple)):
+                    emb_array = np.array(data2, dtype=np.float32)
+                else:
+                    emb_array = np.array(data2, dtype=np.float32)
+                batch2_data.append(emb_array)
+                
+            batch_indices.append(idx)
+            processed_pairs += 1
+            
+            # Process batch when full
+            if len(batch1_images) >= batch_size:
+                # Embed HSC images
+                if batch1_images:
+                    batch_embeddings1 = embedder.embed_batch(batch1_images)
+                    embeddings1.extend(batch_embeddings1)
+                    
+                    # Create lookup entries for HSC
+                    for i, img_idx in enumerate(batch_indices[:len(batch1_images)]):
+                        lookup1.append({
+                            'index': img_idx, 
+                            'source': label1,
+                            'original_data': f'{label1}_image_{img_idx}'
+                        })
+                
+                # Process SDSS embeddings (already computed)
+                if batch2_data:
+                    embeddings2.extend(batch2_data)
+                    
+                    # Create lookup entries for SDSS
+                    for i, emb_idx in enumerate(batch_indices[:len(batch2_data)]):
+                        lookup2.append({
+                            'index': emb_idx,
+                            'source': label2, 
+                            'original_data': f'{label2}_embedding_{emb_idx}'
+                        })
+                
+                # Clear batches
+                batch1_images, batch2_data = [], []
+                batch_indices = []
+                
+        except Exception as e:
+            logging.warning(f"Failed to process HSC-SDSS pair {idx}: {e}")
+            continue
+    
+    # Process final batch
+    if batch1_images and batch2_data:
+        # Embed remaining HSC images
+        batch_embeddings1 = embedder.embed_batch(batch1_images)
+        embeddings1.extend(batch_embeddings1)
+        
+        for i, img_idx in enumerate(batch_indices[:len(batch1_images)]):
+            lookup1.append({
+                'index': img_idx,
+                'source': label1,
+                'original_data': f'{label1}_image_{img_idx}'
+            })
+        
+        # Process remaining SDSS embeddings
+        embeddings2.extend(batch2_data)
+        
+        for i, emb_idx in enumerate(batch_indices[:len(batch2_data)]):
+            lookup2.append({
+                'index': emb_idx,
+                'source': label2,
+                'original_data': f'{label2}_embedding_{emb_idx}'
+            })
+    
+    # Convert to numpy arrays
+    final_embeddings1 = np.array(embeddings1, dtype=np.float32) if embeddings1 else np.array([])
+    final_embeddings2 = np.array(embeddings2, dtype=np.float32) if embeddings2 else np.array([])
+    
+    logging.info(f"Successfully processed {len(final_embeddings1)} aligned pairs from streaming HSC-SDSS.")
+    return final_embeddings1, lookup1, final_embeddings2, lookup2
 
 
 def _process_streaming_desi_hsc(
