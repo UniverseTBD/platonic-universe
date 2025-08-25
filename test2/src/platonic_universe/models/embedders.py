@@ -76,6 +76,20 @@ class ViTBatchEmbedder(BaseEmbedder):
         
         return batch_embeddings.cpu().numpy()
 
+class ConvNeXtBatchEmbedder(BaseEmbedder):
+    """Embedder for ConvNeXt models from Hugging Face."""
+    def embed_batch(self, images: list) -> np.ndarray:
+        if not images:
+            return np.array([])
+        
+        inputs = self.processor(images=images, return_tensors="pt").to(self.device)
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            # ConvNeXt outputs feature maps, use global average pooling
+            batch_embeddings = outputs.last_hidden_state.mean(dim=(2, 3))
+        
+        return batch_embeddings.cpu().numpy()
+
 def get_embedder(loaded_model: LoadedModel) -> BaseEmbedder:
     """Factory function to get the correct embedder for a loaded model."""
     model_name = getattr(loaded_model.model, 'name_or_path', '').lower()
@@ -86,6 +100,8 @@ def get_embedder(loaded_model: LoadedModel) -> BaseEmbedder:
         return DINOv2WithRegistersBatchEmbedder(loaded_model)
     elif 'vit' in model_name or 'vision-transformer' in model_name:
         return ViTBatchEmbedder(loaded_model)
+    elif 'convnext' in model_name:
+        return ConvNeXtBatchEmbedder(loaded_model)
     elif loaded_model.transforms is not None: # Heuristic for timm models
         return TimmDINOv2BatchEmbedder(loaded_model)
     else:

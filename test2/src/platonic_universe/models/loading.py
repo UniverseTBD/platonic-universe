@@ -66,6 +66,10 @@ def load_model_from_alias(alias: str) -> LoadedModel:
                 model = ViTModel.from_pretrained(repo_id).to(device)
                 processor = ViTImageProcessor.from_pretrained(repo_id)
                 return LoadedModel(model=model, device=device, processor=processor)
+            elif 'convnext' in repo_id.lower():
+                model = AutoModel.from_pretrained(repo_id).to(device)
+                processor = AutoImageProcessor.from_pretrained(repo_id)
+                return LoadedModel(model=model, device=device, processor=processor)
             else:
                 model = AutoModel.from_pretrained(repo_id).to(device)
                 processor = AutoProcessor.from_pretrained(repo_id)

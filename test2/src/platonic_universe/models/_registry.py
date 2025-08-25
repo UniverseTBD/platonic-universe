@@ -49,4 +49,24 @@ MODEL_REGISTRY = {
         "source": "huggingface",
         "description": "Vision Transformer huge model trained on ImageNet-21k.",
     },
+    "convnext-nano": {
+        "repo_id": "facebook/convnextv2-nano-22k-224",
+        "source": "huggingface",
+        "description": "ConvNeXt v2 nano model trained on ImageNet-22k.",
+    },
+    "convnext-tiny": {
+        "repo_id": "facebook/convnextv2-tiny-22k-224",
+        "source": "huggingface",
+        "description": "ConvNeXt v2 tiny model trained on ImageNet-22k.",
+    },
+    "convnext-base": {
+        "repo_id": "facebook/convnextv2-base-22k-224",
+        "source": "huggingface",
+        "description": "ConvNeXt v2 base model trained on ImageNet-22k.",
+    },
+    "convnext-large": {
+        "repo_id": "facebook/convnextv2-large-22k-224",
+        "source": "huggingface",
+        "description": "ConvNeXt v2 large model trained on ImageNet-22k.",
+    },
 }
