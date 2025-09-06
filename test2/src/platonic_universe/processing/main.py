@@ -200,6 +200,15 @@ def _process_paired_dataset_bulk(
     """
     logging.info("Using bulk processing mode (RAM-for-speed tradeoff)")
     
+    # Detect AstroPT models for special preprocessing
+    is_astropt = hasattr(embedder.model, 'generate_embeddings') and hasattr(embedder.model, 'modality_registry')
+    if is_astropt:
+        return _process_astropt_dataset_bulk(
+            dataset, embedder, column1, label1, column2, label2,
+            batch_size, max_samples, dataset_alias, use_lut_normalization,
+            needs_embedding1, needs_embedding2
+        )
+    
     # Phase 1: Bulk preprocessing all images into RAM
     logging.info("Phase 1: Bulk preprocessing images into RAM...")
     
@@ -543,4 +552,112 @@ def _process_streaming_desi_hsc(
             embeddings2.append(emb_batch2[i].flatten())
     
     logging.info(f"Successfully processed {len(embeddings1)} aligned pairs from streaming DESI-HSC.")
+    return np.array(embeddings1), lookup1, np.array(embeddings2), lookup2
+
+
+def _process_astropt_dataset_bulk(
+    dataset: Dataset,
+    embedder: BaseEmbedder,
+    column1: str,
+    label1: str,
+    column2: str,
+    label2: str,
+    batch_size: int,
+    max_samples: int,
+    dataset_alias: str,
+    use_lut_normalization: bool,
+    needs_embedding1: bool,
+    needs_embedding2: bool
+) -> tuple[np.ndarray, list, np.ndarray, list]:
+    """
+    AstroPT-specific processing: applies PreprocessAstropt directly to raw flux data.
+    This matches the workflow from the original script.
+    """
+    logging.info("Using AstroPT-specific preprocessing pipeline")
+    
+    # Import AstroPT preprocessor
+    from ..preprocessing.astropt import PreprocessAstropt
+    
+    # Determine modes from column names
+    modes = []
+    if column1.endswith('_image') or column1 == 'image':
+        mode1 = column1.replace('_image', '') if column1.endswith('_image') else 'hsc'
+        modes.append(mode1)
+    if column2.endswith('_image') or column2 == 'image':
+        mode2 = column2.replace('_image', '') if column2.endswith('_image') else column2.replace('_image', '')
+        modes.append(mode2)
+    
+    # Initialize AstroPT preprocessor
+    preprocessor = PreprocessAstropt(embedder.model.modality_registry, modes, resize=False, use_lut_normalization=use_lut_normalization)
+    
+    # Process the dataset using the same pattern as original script
+    logging.info("Phase 1: Applying AstroPT preprocessing to astronomical data...")
+    
+    all_samples = []
+    processed_pairs = 0
+    
+    # Collect and preprocess samples
+    for idx, sample in enumerate(tqdm(dataset, desc="AstroPT Preprocessing")):
+        if max_samples and processed_pairs >= max_samples:
+            break
+            
+        try:
+            # Apply AstroPT preprocessing to the sample
+            processed_sample = preprocessor(sample)
+            all_samples.append((idx, processed_sample))
+            processed_pairs += 1
+        except Exception as e:
+            logging.debug(f"Skipped sample {idx}: {e}")
+            continue
+    
+    logging.info(f"Phase 1 complete: {len(all_samples)} samples preprocessed")
+    
+    # Phase 2: Bulk embedding using processed data
+    logging.info("Phase 2: Bulk GPU embedding with AstroPT...")
+    
+    embeddings1, embeddings2 = [], []
+    lookup1, lookup2 = [], []
+    
+    # Process in batches
+    for i in tqdm(range(0, len(all_samples), batch_size), desc="Bulk Embedding"):
+        batch_samples = all_samples[i:i + batch_size]
+        batch_data1, batch_data2 = [], []
+        batch_indices = []
+        
+        for orig_idx, processed_sample in batch_samples:
+            batch_indices.append(orig_idx)
+            
+            # Prepare data for each mode
+            if needs_embedding1 and modes:
+                mode1_key = f"{modes[0]}_images"
+                mode1_pos_key = f"{modes[0]}_positions"
+                if mode1_key in processed_sample and mode1_pos_key in processed_sample:
+                    batch_data1.append({
+                        'images': processed_sample[mode1_key],
+                        'images_positions': processed_sample[mode1_pos_key]
+                    })
+            
+            if needs_embedding2 and len(modes) > 1:
+                mode2_key = f"{modes[1]}_images"
+                mode2_pos_key = f"{modes[1]}_positions"
+                if mode2_key in processed_sample and mode2_pos_key in processed_sample:
+                    batch_data2.append({
+                        'images': processed_sample[mode2_key],
+                        'images_positions': processed_sample[mode2_pos_key]
+                    })
+        
+        # Generate embeddings
+        if batch_data1 and needs_embedding1:
+            emb_batch1 = embedder.embed_batch(batch_data1)
+            for j, emb in enumerate(emb_batch1):
+                lookup1.append({'dataset_index': batch_indices[j], 'type': label1, 'embedding_index': len(embeddings1)})
+                embeddings1.append(emb.flatten())
+        
+        if batch_data2 and needs_embedding2:
+            emb_batch2 = embedder.embed_batch(batch_data2)
+            for j, emb in enumerate(emb_batch2):
+                lookup2.append({'dataset_index': batch_indices[j], 'type': label2, 'embedding_index': len(embeddings2)})
+                embeddings2.append(emb.flatten())
+    
+    logging.info(f"AstroPT processing complete: {len(embeddings1)} aligned pairs embedded")
     return np.array(embeddings1), lookup1, np.array(embeddings2), lookup2

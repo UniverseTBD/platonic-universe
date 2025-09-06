@@ -11,6 +11,13 @@ def _import_transformers():
         from transformers import AutoProcessor, AutoModel, ViTImageProcessor, ViTModel, AutoImageProcessor
     return AutoProcessor, AutoModel, ViTImageProcessor, ViTModel, AutoImageProcessor
 
+def _import_astropt():
+    """Lazy import of astropt to allow environment setup first."""
+    global load_astropt
+    if 'load_astropt' not in globals():
+        from astropt.model_utils import load_astropt
+    return load_astropt
+
 class LoadedModel:
     """A container for a loaded model and its specific preprocessor/transforms."""
     def __init__(self, model, device, processor=None, transforms=None):
@@ -40,7 +47,15 @@ def load_model_from_alias(alias: str) -> LoadedModel:
     logging.info(f"Loading model '{alias}' ({repo_id}) from '{source}' on device '{device}'...")
 
     try:
-        if source == "timm":
+        if source == "astropt":
+            # --- ASTROPT-SPECIFIC LOADING LOGIC ---
+            load_astropt = _import_astropt()
+            model_path = model_info["model_path"]
+            model = load_astropt(repo_id, path=model_path).to(device)
+            model.eval()
+            return LoadedModel(model=model, device=device)
+            
+        elif source == "timm":
             # --- TIMM-SPECIFIC LOADING LOGIC ---
             model = timm.create_model(repo_id, pretrained=True, num_classes=0).to(device)
             model = model.eval()

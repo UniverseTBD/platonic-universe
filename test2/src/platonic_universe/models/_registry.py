@@ -69,4 +69,22 @@ MODEL_REGISTRY = {
         "source": "huggingface",
         "description": "ConvNeXt v2 large model trained on ImageNet-22k.",
     },
+    "astropt-small": {
+        "repo_id": "Smith42/astroPT_v2.0",
+        "source": "astropt",
+        "model_path": "astropt/015M",
+        "description": "AstroPT 015M parameter model for astronomical image analysis.",
+    },
+    "astropt-base": {
+        "repo_id": "Smith42/astroPT_v2.0",
+        "source": "astropt",
+        "model_path": "astropt/095M",
+        "description": "AstroPT 095M parameter model for astronomical image analysis.",
+    },
+    "astropt-large": {
+        "repo_id": "Smith42/astroPT_v2.0",
+        "source": "astropt",
+        "model_path": "astropt/850M",
+        "description": "AstroPT 850M parameter model for astronomical image analysis.",
+    },
 }
