@@ -14,6 +14,7 @@ class HFAdapter(ModelAdapter):
       - 'convnext' -> spatial mean over HxW (last_hidden_state.mean(dim=(2,3)))
       - 'ijepa' -> mean over token dim (last_hidden_state.mean(dim=1))
       - 'vjepa' -> mean over token dim (last_hidden_state.mean(dim=1))
+      - 'vit-mae' -> CLS excluded mean over tokens (last_hidden_state[:,1:].mean)
     """
 
     def __init__(self, model_name: str, size: str, alias: str = None):
@@ -37,7 +38,7 @@ class HFAdapter(ModelAdapter):
         inputs = batch[f"{mode}"].to("cuda")
         with torch.no_grad():
             outputs = self.model(inputs).last_hidden_state
-            if self.alias == "vit":
+            if self.alias == "vit" or self.alias == "vit-mae":
                 emb = outputs[:, 1:].mean(dim=1).detach()
             elif self.alias == "convnext":
                 emb = outputs.mean(dim=(2, 3)).detach()
@@ -55,5 +56,5 @@ class HFAdapter(ModelAdapter):
         return emb
 
 # Register this adapter for the HF-style aliases used by the repo
-for alias in ("vit", "dino","dinov3", "convnext", "ijepa", "vjepa"):
+for alias in ("vit", "dino","dinov3", "convnext", "ijepa", "vjepa", "vit-mae"):
     register_adapter(alias, HFAdapter)

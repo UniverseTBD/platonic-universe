@@ -86,6 +86,10 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["015M", "095M", "850M"],
             [f"Smith42/astroPT_v2.0" for _ in range(3)],
         ),
+        "vit-mae": (
+            ["base", "large", "huge"],
+            [f"facebook/vit-mae-{s}" for s in ["base", "large", "huge"]],
+        ),
     }
 
     try:
