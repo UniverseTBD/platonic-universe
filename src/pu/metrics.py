@@ -248,13 +248,17 @@ def run_comparisons(parquet_file: str, metrics: List[str], k: int = 10, size: st
     for metric in metrics:
         try:
             if metric == "mknn":
-                results[metric] = mknn(arr1, arr2, k=k)
+                metric_name = "mknn_k{k}"
+                results[metric_name] = mknn(arr1, arr2, k=k)
             elif metric == "jaccard":
+                metric_name = "jaccard_k{k}"
                 results[metric] = jaccard_index(arr1, arr2, k=k)
             elif metric == "cka":
-                results[metric] = linear_cka(arr1, arr2)
+                metric_name = "cka"
+                results[metric_name] = linear_cka(arr1, arr2)
             elif metric == "rsm":
-                results[metric] = rsm_correlation(arr1, arr2)
+                metric_name = "rsm"
+                results[metric_name] = rsm_correlation(arr1, arr2)
             else:
                 raise ValueError(f"Unknown metric: {metric}")
         except ValueError as e:
