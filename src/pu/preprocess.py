@@ -3,6 +3,7 @@ from functools import partial
 import numpy as np
 import torch
 from astropt.local_datasets import GalaxyImageDataset
+from aion.modalities import LegacySurveyImage, HSCImage, DESISpectra
 from torchvision import transforms
 
 from pu.zoom import resize_galaxy_to_fit
@@ -49,6 +50,48 @@ class PreprocessAstropt:
 
     @staticmethod
     def normalise_for_astropt(x):
+        std, mean = torch.std_mean(x, dim=1, keepdim=True)
+        return (x - mean) / (std + 1e-8)
+
+    @classmethod
+    def data_transforms(cls):
+        return transforms.Compose([transforms.Lambda(cls.normalise_for_astropt)])
+
+    def __init__(
+        self,
+        modality_registry,
+        modes,
+        resize=False,
+    ):
+        self.galproc = GalaxyImageDataset(
+            None,
+            spiral=True,
+            transform={"images": self.data_transforms()},
+            modality_registry=modality_registry,
+        )
+        self.modes = modes
+        self.f2p = partial(flux_to_pil, resize=resize)
+
+    def __call__(self, idx):
+        result = {}
+        for mode in self.modes:
+            if (mode == "desi") or (mode == "sdss"):
+                continue
+            else:
+                im = self.f2p(idx[f"{mode}_image"], mode, self.modes).swapaxes(0, 2)
+                im = self.galproc.process_galaxy(
+                    torch.from_numpy(im).to(torch.float)
+                ).to(torch.float)
+                result[f"{mode}_images"] = im
+                result[f"{mode}_positions"] = torch.arange(0, len(im), dtype=torch.long)
+
+        return result
+
+
+class PreprocessAION:
+    """Preprocessor that converts galaxy images to the format expected by AION models"""
+    @staticmethod
+    def tokenise(x):
         std, mean = torch.std_mean(x, dim=1, keepdim=True)
         return (x - mean) / (std + 1e-8)
 
