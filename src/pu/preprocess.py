@@ -42,6 +42,34 @@ class PreprocessHF:
                     raise KeyError("autoproc does not have 'pixel_values' or 'pixel_values_videos' in its dict")
 
         return result
+    
+
+class PreprocessSAM2:
+    """Preprocessor that converts galaxy images to the format expected by SAM2 models"""
+
+    def __init__(
+        self,
+        modes,
+        sam2_transforms,
+        resize=False,
+    ):
+        self.modes = modes
+        self.sam2_transforms = sam2_transforms
+        self.f2p = partial(flux_to_pil, resize=resize)
+
+    def __call__(self, idx):
+        result = {}
+        for mode in self.modes:
+            if (mode == "desi") or (mode == "sdss"):
+                continue
+            else:
+                # Convert flux to PIL-like array
+                im = self.f2p(idx[f"{mode}_image"], mode, self.modes)
+                # Apply SAM2 transforms
+                transformed = self.sam2_transforms(im)
+                result[f"{mode}"] = transformed
+
+        return result
 
 
 class PreprocessAstropt:

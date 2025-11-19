@@ -35,6 +35,13 @@ Our results (below) show that **larger models exhibit more similar representatio
    ```bash
    uv pip install .
    ```
+> To install without uv, you can create a virtual environment and install the requirements manually:
+> ```bash
+> python -m venv pu_env
+> source pu_env/bin/activate
+> pip install .
+> ## or to install with SAM2 support:
+> pip install ".[sam2]"
 
 ### Quick Start: Running Experiments
 

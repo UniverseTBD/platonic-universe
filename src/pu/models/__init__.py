@@ -5,5 +5,6 @@ from .registry import get_adapter, register_adapter, list_adapters
 # The imports are intentionally unused here; they only trigger registration.
 from . import hf
 from . import astropt 
+from . import sam2
 
 __all__ = ["get_adapter", "register_adapter", "list_adapters"]

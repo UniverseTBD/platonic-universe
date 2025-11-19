@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoModel, AutoImageProcessor, AutoVideoProcessor
+from transformers import AutoModel, AutoImageProcessor, AutoVideoProcessor, HieraModel
 from typing import Any, Dict, Iterable
 from pu.models.base import ModelAdapter
 from pu.preprocess import PreprocessHF
@@ -27,7 +27,12 @@ class HFAdapter(ModelAdapter):
             self.processor = AutoVideoProcessor.from_pretrained(self.model_name)
         else:
             self.processor = AutoImageProcessor.from_pretrained(self.model_name)
-        self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
+        
+        if self.alias == "hiera":
+            self.model = HieraModel.from_pretrained(self.model_name).to("cuda").eval()
+        else:
+            self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
+
 
     def get_preprocessor(self, modes: Iterable[str]):
         # Return a callable compatible with datasets.Dataset.map
@@ -50,11 +55,15 @@ class HFAdapter(ModelAdapter):
                 emb = outputs.mean(dim=1).detach()
             elif self.alias == "vjepa":
                 emb = outputs.mean(dim=1).detach()
+            elif self.alias == "hiera":
+                #  Hiera output is (B, 49, C). 
+                # We pool over the sequence dimension (dim=1).
+                emb = outputs.mean(dim=1).detach()
             else:
                 # Default fallback: mean over token dim excluding CLS if present
                 emb = outputs.mean(dim=1).detach()
         return emb
 
 # Register this adapter for the HF-style aliases used by the repo
-for alias in ("vit", "dino","dinov3", "convnext", "ijepa", "vjepa", "vit-mae"):
+for alias in ("vit", "dino","dinov3", "convnext", "ijepa", "vjepa", "vit-mae","hiera"):
     register_adapter(alias, HFAdapter)

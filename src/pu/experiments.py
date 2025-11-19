@@ -86,9 +86,21 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["015M", "095M", "850M"],
             [f"Smith42/astroPT_v2.0" for _ in range(3)],
         ),
+        "sam2": (
+            ["tiny", "small", "base-plus", "large"],
+            [
+                "facebook/sam2.1-hiera-tiny",
+                "facebook/sam2.1-hiera-small",
+                "facebook/sam2.1-hiera-base-plus",
+                "facebook/sam2.1-hiera-large",
+            ] ),
         "vit-mae": (
             ["base", "large", "huge"],
             [f"facebook/vit-mae-{s}" for s in ["base", "large", "huge"]],
+        ),
+        "hiera": (
+            ["tiny", "small", "base-plus", "large"],
+            [f"facebook/hiera-{s}-224-hf" for s in ["tiny", "small", "base-plus", "large"]],
         ),
     }
 
