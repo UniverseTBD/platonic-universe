@@ -1,6 +1,7 @@
 import argparse
-from pu.experiments import run_experiment
-from pu.metrics import run_mknn_comparison
+import json
+import os
+
 
 def main():
     parser = argparse.ArgumentParser(description="Platonic Universe Experiments")
@@ -16,22 +17,34 @@ def main():
     parser_run.add_argument("--knn-k", type=int, default=10, help="K value for mutual KNN calculation.")
 
     # Subparser for running mknn comparisons
-    parser_mknn = subparsers.add_parser("compare", help="Run mknn comparison on existing embeddings.")
-    parser_mknn.add_argument("parquet_file", help="Path to the Parquet file with embeddings.")
-
+    parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
+    parser_comparisons.add_argument("parquet_file", help="Path to the Parquet file with embeddings.")
+    parser_comparisons.add_argument("--metrics", nargs="+", default=["mknn", "jaccard", "cka", "rsm", "procrustes"], help="Metrics to run (e.g., 'mknn', 'jaccard', 'cka', 'rsm', 'procrustes').")
+    parser_comparisons.add_argument("--k", type=int, default=10, help="K value for mutual KNN calculation.")
+    parser_comparisons.add_argument("--size", type=str, default=None, help="Model size to compare (e.g., 'base', 'large', 'huge'). Use 'all' to process all sizes. Default: first size in file.")
     args = parser.parse_args()
 
     PAIRED_MODES = {"sdss", "desi"}
     if args.command == "run":
-        import sys
+        # Lazy import to avoid loading transformers/torchvision when using compare command
+        from pu.experiments import run_experiment
         if args.mode in PAIRED_MODES and args.num_workers > 0:
             print(f"Warning: Setting num_workers=0 for paired mode '{args.mode}' because multiple workers can change draw order and break pairing.")
             args.num_workers = 0
         run_experiment(args.model, args.mode, args.output_dataset, args.batch_size, args.num_workers, args.knn_k)
     elif args.command == "compare":
-        run_mknn_comparison(args.parquet_file)
+        # Lazy import to avoid loading transformers/torchvision
+        from pu.metrics import run_comparisons
+        results = run_comparisons(args.parquet_file, args.metrics, args.k, size=args.size)
 
+        # Save the results to a JSON file under data #TODO: Make this more robust
+        output_file = f"data/{os.path.basename(args.parquet_file)}.json"
+        os.makedirs("data", exist_ok=True)
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=2, default=str)  # default=str handles numpy types
 
+        # Print the results
+        print(json.dumps(results, indent=2, default=str))
 
 if __name__ == "__main__":
     main()
