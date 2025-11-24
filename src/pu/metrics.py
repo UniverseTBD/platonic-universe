@@ -96,3 +96,21 @@ def run_mknn_comparison(parquet_file: str) -> Dict[str, Any]:
     mknn_score = mknn(arr1, arr2, k=10) # Default k=10
 
     return {"mknn_score": mknn_score, "embeddings": {mode1: embs1, mode2: embs2}}
+
+def compute_cka_mmap(file1: str, file2: str, n: int, m: int) -> float:
+    """
+    Compute CKA between two memory-mapped matrices stored in files.
+
+    Args:
+        file1 (str): Path to the first memory-mapped file.
+        file2 (str): Path to the second memory-mapped file.
+        n (int): Number of samples (rows).
+        m (int): Number of features (columns).
+
+    Returns:
+        float: The CKA similarity score between the two matrices.
+    """
+    from pu_cka import compute_cka
+
+    cka_score = compute_cka(str(file1), str(file2), int(n), int(m))
+    return cka_score

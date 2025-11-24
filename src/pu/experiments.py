@@ -5,12 +5,14 @@ import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import tempfile
 
 
 from pu.models import get_adapter
 from pu.pu_datasets import get_dataset_adapter
-from pu.metrics import mknn
+from pu.metrics import mknn, compute_cka_mmap
 #from astroclip.models.specformer import SpecFormer
+from pu.utils import write_bin
 
 def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10):
     """Runs the embedding generation experiment based on the provided arguments."""
@@ -144,13 +146,28 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             zs[modes[0]].cpu().numpy(), zs[modes[1]].cpu().numpy(), knn_k
         )
 
+        temp1 = tempfile.NamedTemporaryFile(delete=False)
+        temp2 = tempfile.NamedTemporaryFile(delete=False)
+        temp1.close(); temp2.close()
+
+        # build kernels
+        k1 = zs[modes[0]].cpu().numpy() @ zs[modes[0]].cpu().numpy().T
+        k2 = zs[modes[1]].cpu().numpy() @ zs[modes[1]].cpu().numpy().T
+
+        write_bin(k1, str(temp1.name))
+        write_bin(k2, str(temp2.name))
+
+        # use kernel dimensions (square)
+        cka_score = compute_cka_mmap(str(temp1.name), str(temp2.name), k1.shape[0], k1.shape[1])
+
+        print(f"\ncka {model_alias}, {size}: {cka_score:.8f}")
         print(f"\nmknn {model_alias}, {size}: {mknn_score:.8f}")
 
         # Create the directory if it doesn't exist
         os.makedirs("data", exist_ok=True)  
         # Creating the file to store mknn results
-        with open(f"data/{comp_mode}_{model_alias}_mknn.txt", "a") as fi:
-            fi.write(f"{size},{mknn_score:.8f}\n")
+        with open(f"data/{comp_mode}_{model_alias}_scores.txt", "a") as fi:
+            fi.write(f"{model_alias} {size},mknn : {mknn_score:.8f}, cka : {cka_score:.8f}\n")
 
         df = df.with_columns(
             [
@@ -162,9 +179,10 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ]
         )
 
-    df.write_parquet(f"data/{comp_mode}_{model_alias}.parquet")
-    if upload_ds is not None:
-        Dataset.from_polars(df).push_to_hub(upload_ds)
+        df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
+
+        # if upload_ds is not None:
+        #     Dataset.from_polars(df).push_to_hub(upload_ds)
 
 
 # def get_specformer_embeddings(dataset_name="Smith42/desi_hsc_crossmatched", batch_size=128, num_workers=0):
