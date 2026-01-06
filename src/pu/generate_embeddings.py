@@ -6,8 +6,6 @@ from pu.pu_datasets.local_hsc_jwst import Localh5pyDataset
 from pu.models import get_adapter
 
 def generate_embeddings(file_path, mode, batch_size, model_alias, model_size, model_name, out_path):
-    file_path = '/global/cfs/cdirs/m4236/cosmosweb/catalogs/hsc_jwst_matched_with_images_high_snr'
-    mode = 'hsc'
     if mode == 'hsc':
         channel_idxs = [0, 1, 3]
     elif mode == 'jwst':
