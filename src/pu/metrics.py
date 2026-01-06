@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from typing import Any, Dict
 import polars as pl
-
+from scipy.stats import wasserstein_distance
 
 def mknn(Z1, Z2, k=10):
     """
@@ -114,3 +114,32 @@ def compute_cka_mmap(file1: str, file2: str, n: int, m: int) -> float:
 
     cka_score = compute_cka(str(file1), str(file2), int(n), int(m))
     return cka_score
+
+def wass_distance(Z1=None, Z2=None, k=5, params=None):
+    assert len(Z1) == len(Z2)
+
+    nn1 = (
+        NearestNeighbors(n_neighbors=k, metric="cosine")
+        .fit(Z1)
+        .kneighbors(return_distance=False)
+    )
+    nn2 = (
+        NearestNeighbors(n_neighbors=k, metric="cosine")
+        .fit(Z2)
+        .kneighbors(return_distance=False)
+    )
+
+    n = Z1.shape[0]
+    w_ds = {}
+    for param in params.keys():
+        w_ds[param] = np.zeros(n)
+        
+    for i in range(n):
+        idxs1 = nn1[i,:]
+        idxs2 = nn2[i,:]
+        for param in params.keys():
+            w_ds[param][i] = wasserstein_distance(params[param][idxs1], params[param][idxs2])
+
+    return {param: np.median(w_ds[param]) for param in params.keys()}
+
+    

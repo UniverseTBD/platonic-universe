@@ -1,6 +1,7 @@
 from torch.utils.data import DataLoader
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from pu.pu_datasets.local_hsc_jwst import Localh5pyDataset
 from pu.models import get_adapter
@@ -33,6 +34,6 @@ def generate_embeddings(file_path, mode, batch_size, model_alias, model_size, mo
 
     z = np.vstack(z)
 
-    np.save(out_dir + f"embeddings_{mode}_{model_alias}_{model_name}", z)
+    np.save(out_dir + f"embeddings_{mode}_{model_alias}_{model_size}", z)
 
     return z
