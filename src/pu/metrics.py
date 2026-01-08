@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from scipy.spatial.distance import pdist
-from scipy.stats import spearmanr, pearsonr
+from scipy.stats import spearmanr, pearsonr, wasserstein_distance
 from scipy.linalg import orthogonal_procrustes
 from typing import Any, Dict, List, Tuple
 import polars as pl
@@ -134,6 +134,62 @@ def rsm_correlation(Z1, Z2, method='spearman', metric='cosine'):
     
     return float(corr)
 
+_SWD_DEFAULT_SEED = 0
+_SWD_MIN_PROJECTIONS = 100
+_SWD_MAX_PROJECTIONS = 500
+
+
+def _default_swd_projections(dim: int) -> int:
+    # Heuristic: half the embedding dimension, clamped for stability.
+    return int(np.clip(dim // 2, _SWD_MIN_PROJECTIONS, _SWD_MAX_PROJECTIONS))
+
+
+def sliced_wasserstein_distance(Z1, Z2, n_projections=None, seed=_SWD_DEFAULT_SEED, l2_normalize=True):
+    """
+    Sliced Wasserstein distance between two embedding sets.
+
+    Projects embeddings onto random unit directions, computes 1D Wasserstein
+    distance for each projection, then averages.
+
+    Args:
+        Z1: (n_samples, d) array of embeddings
+        Z2: (n_samples, d) array of embeddings
+        n_projections: number of random directions to sample (auto if None)
+        seed: RNG seed for reproducibility (set to None for random)
+        l2_normalize: whether to L2-normalize embeddings before projection
+
+    Returns:
+        float average sliced Wasserstein distance
+    """
+    assert len(Z1) == len(Z2)
+
+    Z1 = np.asarray(Z1)
+    Z2 = np.asarray(Z2)
+
+    if Z1.shape[1] != Z2.shape[1]:
+        raise ValueError("Z1 and Z2 must have the same feature dimension")
+    if n_projections is None:
+        n_projections = _default_swd_projections(Z1.shape[1])
+    elif n_projections <= 0:
+        raise ValueError("n_projections must be > 0")
+
+    if l2_normalize:
+        Z1 = Z1 / (np.linalg.norm(Z1, axis=1, keepdims=True) + 1e-12)
+        Z2 = Z2 / (np.linalg.norm(Z2, axis=1, keepdims=True) + 1e-12)
+
+    rng = np.random.default_rng(seed)
+    directions = rng.normal(size=(n_projections, Z1.shape[1]))
+    directions = directions / (np.linalg.norm(directions, axis=1, keepdims=True) + 1e-12)
+
+    proj1 = Z1 @ directions.T
+    proj2 = Z2 @ directions.T
+
+    distances = [
+        wasserstein_distance(proj1[:, i], proj2[:, i]) for i in range(n_projections)
+    ]
+
+    return float(np.mean(distances))
+
 def _get_available_sizes(parquet_file: str) -> List[str]:
     """Get all available sizes for a given parquet file."""
     df = pl.read_parquet(parquet_file)
@@ -218,7 +274,7 @@ def run_comparisons(parquet_file: str, metrics: List[str], k: int = 10, size: st
         size: Optional size to use. If None, uses the size from the first column.
               If "all", processes all available sizes and returns a list of results.
     
-    Supported metrics: 'mknn', 'jaccard', 'cka', 'rsm', 'all'.
+    Supported metrics: 'mknn', 'jaccard', 'cka', 'rsm', 'wasserstein' (sliced), 'all'.
     """
 
     # If processing all sizes
@@ -235,7 +291,7 @@ def run_comparisons(parquet_file: str, metrics: List[str], k: int = 10, size: st
 
     # If the user wants to run all metrics, set the metrics to the default list
     if len(metrics) == 1 and metrics[0].lower() == "all":
-        metrics = ["mknn", "jaccard", "cka", "rsm"] #TODO: Add more metrics
+        metrics = ["mknn", "jaccard", "cka", "rsm", "wasserstein"]
 
     # Create a dictionary to store the results
     results = {
@@ -259,6 +315,9 @@ def run_comparisons(parquet_file: str, metrics: List[str], k: int = 10, size: st
             elif metric == "rsm":
                 metric_name = "rsm"
                 results[metric_name] = rsm_correlation(arr1, arr2)
+            elif metric == "wasserstein":
+                metric_name = "wasserstein"
+                results[metric_name] = sliced_wasserstein_distance(arr1, arr2)
             else:
                 raise ValueError(f"Unknown metric: {metric}")
         except ValueError as e:
@@ -305,5 +364,10 @@ def compute_cka_mmap(file1: str, file2: str, n: int, m: int) -> float:
     """
     from pu_cka import compute_cka
 
-    cka_score = compute_cka(str(file1), str(file2), int(n), int(m))
+    try:
+        cka_score = compute_cka(str(file1), str(file2), int(n), int(m))
+    except RuntimeError as exc:
+        if "near-zero norm" in str(exc).lower():
+            return 0.0
+        raise
     return cka_score
