@@ -1,3 +1,4 @@
+import gc
 import os
 import numpy as np
 import polars as pl
@@ -33,6 +34,25 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
                 return False
             else:
                 return True
+
+    prompt_text_slugs = [
+        "galaxy",
+        "spiral-galaxy",
+        "elliptical-galaxy",
+        "galaxy-core",
+        "spiral-arms",
+        "star",
+    ]
+    prompt_geom_slugs = ["center-box"]
+    prompt_sizes = []
+    prompt_model_names = []
+    for base_size in ["5m", "11m", "21m"]:
+        for slug in prompt_geom_slugs:
+            prompt_sizes.append(f"{base_size}-geom-{slug}")
+            prompt_model_names.append(base_size)
+        for slug in prompt_text_slugs:
+            prompt_sizes.append(f"{base_size}-text-{slug}")
+            prompt_model_names.append(base_size)
 
     model_map = {
         "vit": (
@@ -104,6 +124,14 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["tiny", "small", "base-plus", "large"],
             [f"facebook/hiera-{s}-224-hf" for s in ["tiny", "small", "base-plus", "large"]],
         ),
+        "efficientsam3": (
+            ["5m", "11m", "21m"],
+            ["5m", "11m", "21m"],
+        ),
+        "efficientsam3-prompt": (
+            prompt_sizes,
+            prompt_model_names,
+        ),
     }
 
     try:
@@ -111,9 +139,27 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
     except KeyError:
         raise NotImplementedError(f"Model '{model_alias}' not implemented.")
 
+    skip_existing = os.environ.get("PU_SKIP_EXISTING", "").lower() in ("1", "true", "yes")
+
+    size_filter_raw = os.environ.get("PU_SIZE_FILTER", "").strip()
+    if size_filter_raw:
+        filters = [s.strip() for s in size_filter_raw.split(",") if s.strip()]
+        filtered = [
+            (size, name)
+            for size, name in zip(sizes, model_names)
+            if any(filt in size for filt in filters)
+        ]
+        if not filtered:
+            raise ValueError(f"PU_SIZE_FILTER did not match any sizes: {filters}")
+        sizes, model_names = zip(*filtered)
+
     df = pl.DataFrame()
     adapter_cls = get_adapter(model_alias)
     for size, model_name in zip(sizes, model_names):
+        output_path = f"data/{comp_mode}_{model_alias}_{size}.parquet"
+        if skip_existing and os.path.exists(output_path):
+            print(f"Skipping {model_alias} {size} (found {output_path}).")
+            continue
         adapter = adapter_cls(model_name, size, alias=model_alias)
         adapter.load()
         processor = adapter.get_preprocessor(modes)
@@ -183,6 +229,10 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
 
         # if upload_ds is not None:
         #     Dataset.from_polars(df).push_to_hub(upload_ds)
+        del zs
+        del adapter
+        torch.cuda.empty_cache()
+        gc.collect()
 
 
 # def get_specformer_embeddings(dataset_name="Smith42/desi_hsc_crossmatched", batch_size=128, num_workers=0):
