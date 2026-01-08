@@ -72,29 +72,6 @@ class PreprocessSAM2:
         return result
 
 
-class PreprocessEfficientSAM3:
-    """Preprocessor that prepares uint8 CHW tensors for EfficientSAM3."""
-
-    def __init__(
-        self,
-        modes,
-        resize=False,
-    ):
-        self.modes = modes
-        self.f2p = partial(flux_to_pil, resize=resize)
-
-    def __call__(self, idx):
-        result = {}
-        for mode in self.modes:
-            if (mode == "desi") or (mode == "sdss"):
-                continue
-            else:
-                im = self.f2p(idx[f"{mode}_image"], mode, self.modes)
-                result[f"{mode}"] = torch.from_numpy(im).permute(2, 0, 1)
-
-        return result
-
-
 class PreprocessAstropt:
     """Preprocessor that converts galaxy images to the format expected by AstroPT models"""
 
