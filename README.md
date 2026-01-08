@@ -51,19 +51,6 @@ There are two methods to run experiments:
     ```bash
     platonic_universe run --model vit --mode jwst 
     ```
-    **Prompted EfficientSAM3 runs:**
-    ```bash
-    platonic_universe run --model efficientsam3-prompt --mode jwst
-    ```
-    To run a single prompt/size, use `PU_SIZE_FILTER`:
-    ```bash
-    PU_SIZE_FILTER=11m-text-galaxy platonic_universe run --model efficientsam3-prompt --mode jwst
-    ```
-    **Other model examples:**
-    ```bash
-    platonic_universe run --model sam2 --mode jwst
-    platonic_universe run --model convnext --mode jwst
-    ```
 
 2. **Using python pakage directly:**
     ```python
@@ -103,15 +90,6 @@ print(f"MKNN alignment score: {score:.4f}")
 ```
 
 **Higher MKNN scores** indicate more similar representations between models or modalities.
-
-We also track **Sliced Wasserstein Distance (SWD)**, where **lower is better**:
-
-```python
-from pu.metrics import sliced_wasserstein_distance
-
-swd = sliced_wasserstein_distance(embeddings_1, embeddings_2)
-print(f"SWD: {swd:.4f}")
-```
 
 ## Contributing
 
