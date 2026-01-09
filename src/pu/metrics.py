@@ -1,15 +1,25 @@
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from scipy.spatial.distance import pdist
-from scipy.stats import spearmanr, pearsonr
-from scipy.linalg import orthogonal_procrustes
-from typing import Any, Dict, List, Tuple
+from scipy.stats import spearmanr, pearsonr, wasserstein_distance
+from typing import Any, Dict, List, Tuple, Optional
 import polars as pl
-from scipy.stats import wasserstein_distance
 
-def mknn(Z1, Z2, k=10):
+
+def mknn(Z1: np.ndarray, Z2: np.ndarray, k: int = 10) -> float:
     """
-    Calculate mutual k nearest neighbours
+    Calculate mutual k nearest neighbours overlap.
+    
+    For each sample, finds its k nearest neighbors in both embedding spaces
+    and computes the average overlap ratio.
+    
+    Args:
+        Z1: (n_samples, d1) array of embeddings
+        Z2: (n_samples, d2) array of embeddings
+        k: Number of nearest neighbors
+        
+    Returns:
+        float in [0, 1] where 1 = perfect overlap, 0 = no overlap
     """
     assert len(Z1) == len(Z2)
 
@@ -29,11 +39,17 @@ def mknn(Z1, Z2, k=10):
     return float(np.mean(overlap) / k)
 
 
-def jaccard_index(Z1, Z2, k=10):
+def jaccard_index(Z1: np.ndarray, Z2: np.ndarray, k: int = 10) -> float:
     """
-    Calculate Jaccard index of k nearest neighbours
+    Calculate Jaccard index of k nearest neighbours.
 
-    Gives a value between 0 and 1, where 1 means the k nearest neighbours are identical.
+    Args:
+        Z1: (n_samples, d1) array of embeddings
+        Z2: (n_samples, d2) array of embeddings
+        k: Number of nearest neighbors
+        
+    Returns:
+        float in [0, 1] where 1 = identical neighbors, 0 = no overlap
     """
     assert len(Z1) == len(Z2)
 
@@ -54,7 +70,8 @@ def jaccard_index(Z1, Z2, k=10):
 
     return float(np.mean(jaccard))
 
-def linear_cka(Z1, Z2):
+
+def linear_cka(Z1: np.ndarray, Z2: np.ndarray) -> float:
     """
     Linear Centered Kernel Alignment (CKA) between two embedding matrices.
     
@@ -70,8 +87,7 @@ def linear_cka(Z1, Z2):
         float in [0, 1] where 1 = perfect alignment, 0 = no alignment
     
     Reference:
-        Kornblith et al. (2019) "Similarity of Neural Network Representations 
-        Revisited" (ICML)
+        Kornblith et al. (2019) "Similarity of Neural Network Representations Revisited"
     """
     assert len(Z1) == len(Z2)
     
@@ -93,26 +109,29 @@ def linear_cka(Z1, Z2):
     if denominator < 1e-12:
         return 0.0
     
-    cka_value = numerator / denominator
-    return float(cka_value)
+    return float(numerator / denominator)
 
-def rsm_correlation(Z1, Z2, method='spearman', metric='cosine'):
+
+def rsm_correlation(
+    Z1: np.ndarray, 
+    Z2: np.ndarray, 
+    method: str = 'spearman', 
+    metric: str = 'cosine'
+) -> float:
     """
     Representational Similarity Matrix (RSM) correlation.
     
     Computes pairwise distances between samples in each embedding space,
-    then correlates these distance matrices. This measures whether the
-    two embedding spaces preserve similar relational structure.
+    then correlates these distance matrices.
     
     Args:
         Z1: (n_samples, d1) array of embeddings
         Z2: (n_samples, d2) array of embeddings
-        method: 'spearman' (rank correlation, more robust) or 'pearson'
+        method: 'spearman' (rank correlation) or 'pearson'
         metric: distance metric - 'cosine', 'euclidean', 'correlation', etc.
     
     Returns:
         float correlation coefficient in [-1, 1]
-        1 = perfect agreement, -1 = perfect disagreement, 0 = no correlation
     
     Reference:
         Kriegeskorte et al. (2008) "Representational similarity analysis"
@@ -133,6 +152,65 @@ def rsm_correlation(Z1, Z2, method='spearman', metric='cosine'):
         raise ValueError(f"Unknown method: {method}. Use 'spearman' or 'pearson'")
     
     return float(corr)
+
+
+def wass_distance(
+    Z1: np.ndarray,
+    Z2: np.ndarray,
+    k: int = 5,
+    params: Optional[Dict[str, np.ndarray]] = None
+) -> Dict[str, float]:
+    """
+    Compute median Wasserstein distance of physical parameters in k-NN neighborhoods.
+    
+    For each sample, finds k nearest neighbors in both embedding spaces,
+    then computes the Wasserstein distance between the parameter distributions
+    of these neighbor sets. Returns the median distance across all samples.
+    
+    This measures how much the local neighborhood structure differs between
+    two representations in terms of physical properties.
+    
+    Args:
+        Z1: (n_samples, d1) embeddings from first representation
+        Z2: (n_samples, d2) embeddings from second representation
+        k: Number of nearest neighbors
+        params: Dict mapping parameter names to (n_samples,) arrays
+        
+    Returns:
+        Dict mapping parameter names to median Wasserstein distances
+        
+    Example:
+        >>> params = {'redshift': z_values, 'stellar_mass': mass_values}
+        >>> distances = wass_distance(emb1, emb2, k=10, params=params)
+        >>> print(distances['redshift'])  # How much redshift distributions differ
+    """
+    assert len(Z1) == len(Z2)
+    
+    if params is None:
+        return {}
+
+    nn1 = (
+        NearestNeighbors(n_neighbors=k, metric="cosine")
+        .fit(Z1)
+        .kneighbors(return_distance=False)
+    )
+    nn2 = (
+        NearestNeighbors(n_neighbors=k, metric="cosine")
+        .fit(Z2)
+        .kneighbors(return_distance=False)
+    )
+
+    n = Z1.shape[0]
+    w_ds = {param: np.zeros(n) for param in params.keys()}
+        
+    for i in range(n):
+        idxs1 = nn1[i, :]
+        idxs2 = nn2[i, :]
+        for param in params.keys():
+            w_ds[param][i] = wasserstein_distance(params[param][idxs1], params[param][idxs2])
+
+    return {param: float(np.median(w_ds[param])) for param in params.keys()}
+
 
 def _get_available_sizes(parquet_file: str) -> List[str]:
     """Get all available sizes for a given parquet file."""
@@ -161,14 +239,19 @@ def _get_available_sizes(parquet_file: str) -> List[str]:
     return sorted(list(sizes))
 
 
-def _load_pair_from_parquet(parquet_file: str, size: str = None) -> Tuple[np.ndarray, np.ndarray, Tuple[str, str], Tuple[str, str]]:
-    """Helper to load two embedding columns from a parquet file.
+def _load_pair_from_parquet(
+    parquet_file: str, 
+    size: str = None
+) -> Tuple[np.ndarray, np.ndarray, Tuple[str, str], Tuple[str, str]]:
+    """
+    Load two embedding columns from a parquet file.
 
     Args:
         parquet_file: Path to parquet file
         size: Optional size to use. If None, uses the size from the first column.
     
-    Returns (arr1, arr2, (model,size), (mode1, mode2))
+    Returns:
+        (arr1, arr2, (model, size), (mode1, mode2))
     """
     # Load the parquet file
     df = pl.read_parquet(parquet_file)
@@ -208,20 +291,23 @@ def _load_pair_from_parquet(parquet_file: str, size: str = None) -> Tuple[np.nda
     return arr1, arr2, (model, size), (mode1, mode2)
 
 
-def run_comparisons(parquet_file: str, metrics: List[str], k: int = 10, size: str = None) -> Dict[str, Any]:
-    """Compute one or more metrics between the two embedding columns in a parquet file.
+def run_comparisons(
+    parquet_file: str, 
+    metrics: List[str], 
+    k: int = 10, 
+    size: str = None
+) -> Dict[str, Any]:
+    """
+    Compute one or more metrics between embedding columns in a parquet file.
 
     Args:
         parquet_file: Path to parquet file
         metrics: List of metrics to compute
         k: K value for k-NN based metrics
-        size: Optional size to use. If None, uses the size from the first column.
-              If "all", processes all available sizes and returns a list of results.
+        size: Optional size to use. If None, uses first. If "all", processes all sizes.
     
     Supported metrics: 'mknn', 'jaccard', 'cka', 'rsm', 'all'.
     """
-
-    # If processing all sizes
     if size == "all":
         available_sizes = _get_available_sizes(parquet_file)
         results = []
@@ -244,95 +330,48 @@ def run_comparisons(parquet_file: str, metrics: List[str], k: int = 10, size: st
         "modes": [mode1, mode2],
     }
 
-    # Run the metrics
     for metric in metrics:
-        try:
-            if metric == "mknn":
-                metric_name = "mknn_k{k}"
-                results[metric_name] = mknn(arr1, arr2, k=k)
-            elif metric == "jaccard":
-                metric_name = "jaccard_k{k}"
-                results[metric] = jaccard_index(arr1, arr2, k=k)
-            elif metric == "cka":
-                metric_name = "cka"
-                results[metric_name] = linear_cka(arr1, arr2)
-            elif metric == "rsm":
-                metric_name = "rsm"
-                results[metric_name] = rsm_correlation(arr1, arr2)
-            else:
-                raise ValueError(f"Unknown metric: {metric}")
-        except ValueError as e:
-            raise
+        if metric == "mknn":
+            results[f"mknn_k{k}"] = mknn(arr1, arr2, k=k)
+        elif metric == "jaccard":
+            results[f"jaccard_k{k}"] = jaccard_index(arr1, arr2, k=k)
+        elif metric == "cka":
+            results["cka"] = linear_cka(arr1, arr2)
+        elif metric == "rsm":
+            results["rsm"] = rsm_correlation(arr1, arr2)
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
 
     return results
 
+
 def run_mknn_comparison(parquet_file: str) -> Dict[str, Any]:
     """
-    Load embeddings from a Parquet file and compute the mknn metric between
-    two sets of embeddings.
-
-    Assumes the Parquet file has columns named in the format:
-    - <model>_<size>_<mode1>
-    - <model>_<size>_<mode2>
-
-    where <mode1> and <mode2> are the two datasets to compare (e.g., 'hsc' and 'jwst').
+    Load embeddings from a Parquet file and compute the mknn metric.
 
     Args:
-        parquet_file (str): Path to the Parquet file containing embeddings.
+        parquet_file: Path to the Parquet file containing embeddings.
+        
     Returns:
-        Dict[str, Any]: Dictionary containing the mknn score and raw embeddings.
+        Dictionary containing the mknn score and embeddings.
     """
-
-    # Load the embeddings from the parquet file
     arr1, arr2, (model, size), (mode1, mode2) = _load_pair_from_parquet(parquet_file)
+    mknn_score = mknn(arr1, arr2, k=10)
+    return {"mknn_score": mknn_score, "embeddings": {mode1: arr1, mode2: arr2}}
 
-    mknn_score = mknn(arr1, arr2, k=10) # Default k=10
-
-    return {"mknn_score": mknn_score, "embeddings": {mode1: embs1, mode2: embs2}}
 
 def compute_cka_mmap(file1: str, file2: str, n: int, m: int) -> float:
     """
     Compute CKA between two memory-mapped matrices stored in files.
 
     Args:
-        file1 (str): Path to the first memory-mapped file.
-        file2 (str): Path to the second memory-mapped file.
-        n (int): Number of samples (rows).
-        m (int): Number of features (columns).
+        file1: Path to the first memory-mapped file.
+        file2: Path to the second memory-mapped file.
+        n: Number of samples (rows).
+        m: Number of features (columns).
 
     Returns:
-        float: The CKA similarity score between the two matrices.
+        The CKA similarity score between the two matrices.
     """
     from pu_cka import compute_cka
-
-    cka_score = compute_cka(str(file1), str(file2), int(n), int(m))
-    return cka_score
-
-def wass_distance(Z1=None, Z2=None, k=5, params=None):
-    assert len(Z1) == len(Z2)
-
-    nn1 = (
-        NearestNeighbors(n_neighbors=k, metric="cosine")
-        .fit(Z1)
-        .kneighbors(return_distance=False)
-    )
-    nn2 = (
-        NearestNeighbors(n_neighbors=k, metric="cosine")
-        .fit(Z2)
-        .kneighbors(return_distance=False)
-    )
-
-    n = Z1.shape[0]
-    w_ds = {}
-    for param in params.keys():
-        w_ds[param] = np.zeros(n)
-        
-    for i in range(n):
-        idxs1 = nn1[i,:]
-        idxs2 = nn2[i,:]
-        for param in params.keys():
-            w_ds[param][i] = wasserstein_distance(params[param][idxs1], params[param][idxs2])
-
-    return {param: np.median(w_ds[param]) for param in params.keys()}
-
-    
+    return compute_cka(str(file1), str(file2), int(n), int(m))

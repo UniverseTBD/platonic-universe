@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, Callable
-from datasets import Dataset
+from typing import Iterable, Callable, Optional, List
+
 
 class DatasetAdapter(ABC):
-    """Minimal dataset adapter interface.
+    """
+    Minimal dataset adapter interface.
 
     Implementations should encapsulate all dataset-specific loading and column
     transformations so experiments only need to call `prepare(processor, modes, filterfun)`.
@@ -19,19 +20,27 @@ class DatasetAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def prepare(self, processor: Callable, modes: Iterable[str], filterfun: Callable):
-        """Return a preprocessed `datasets.Dataset` ready for iteration.
+    def prepare(
+        self, 
+        processor: Callable, 
+        modes: Iterable[str], 
+        filterfun: Callable,
+        physical_params: Optional[List[str]] = None,
+    ):
+        """
+        Return a preprocessed `datasets.Dataset` ready for iteration.
 
         The adapter should:
         - load/concatenate/rename columns as needed for this dataset
-        - call .filter(filterfun) when streaming is used (the caller provides filterfun)
+        - call .filter(filterfun) when streaming is used
         - call .map(processor)
-        - remove any raw image columns that are not required for downstream code
+        - optionally preserve physical_params columns for downstream analysis
 
         Args:
             processor: callable returned by model_adapter.get_preprocessor(modes)
             modes: sequence of mode names used by experiments (e.g. ['hsc', 'jwst'])
             filterfun: callable used to filter streaming datasets
+            physical_params: optional list of column names to preserve for analysis
 
         Returns:
             datasets.Dataset
