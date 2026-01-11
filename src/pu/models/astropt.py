@@ -15,10 +15,13 @@ class AstroptAdapter(ModelAdapter):
         super().__init__(model_name, size, alias)
         self.model = None
 
-    def load(self) -> None:
+    def load(self, compile_model: bool = False) -> None:
         # follow previous code: model is loaded with a path containing the size
         self.model = load_astropt(self.model_name, path=f"astropt/{self.size}").to("cuda")
         self.model.eval()
+
+        if compile_model:
+            self.model = torch.compile(self.model, mode="reduce-overhead", fullgraph=False)
 
     def get_preprocessor(self, modes: Iterable[str]):
         # PreprocessAstropt needs the modality_registry from the loaded model

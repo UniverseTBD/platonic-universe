@@ -33,13 +33,16 @@ class SAM2Adapter(ModelAdapter):
         self.model = None
         self.predictor = None
 
-    def load(self) -> None:
+    def load(self, compile_model: bool = False) -> None:
         # Build SAM2 model using the config and checkpoint
         # model_name is expected to be a Hugging Face model ID like "facebook/sam2.1-hiera-large"
         # We'll use the from_pretrained method to load from HuggingFace
         self.predictor = SAM2ImagePredictor.from_pretrained(self.model_name)
         self.model = self.predictor.model
         self.model.to("cuda").eval()
+
+        if compile_model:
+            self.model = torch.compile(self.model, mode="reduce-overhead", fullgraph=False)
 
     def get_preprocessor(self, modes: Iterable[str]):
         # Return a callable compatible with datasets.Dataset.map
