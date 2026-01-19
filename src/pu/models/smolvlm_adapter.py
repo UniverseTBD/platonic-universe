@@ -4,28 +4,32 @@ from typing import Any, Dict, Iterable
 from pu.models.base import ModelAdapter
 from pu.preprocess import PreprocessHF
 from pu.models.registry import register_adapter
+try:
+    from transformers import AutoProcessor, AutoModelForImageTextToText
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
 
 class SmolVLMAdapter(ModelAdapter):
     """
-    Adapter for SmolVLM vision-language models.
-    
-    The adapter extracts penultimate layer representations from either:
-      - Vision tower only ('smolvlm-vision' alias)
-      - Full multimodal model ('smolvlm' alias)
-    
-    Pooling strategy: Mean pooling over sequence dimension
-    
-    Supports:
-      - torch.compile: Pass compile_model=True to load() for optimized inference
-      - AMP: Call enable_amp(True) for float16 mixed precision inference
+    The adapter extracts penultimate layer representations using hooks.
+    Uses 'alias' to decide which representation to extract:
+      - 'smolvlm-vision' -> Vision tower penultimate layer, mean pooled over tokens
+      - 'smolvlm' -> Full VLM penultimate layer, mean pooled over tokens
     """
     
     def __init__(self, model_name: str, size: str, alias: str = None):
         super().__init__(model_name, size, alias)
+        if not TRANSFORMERS_AVAILABLE:
+            raise ImportError(
+                "transformers is required. Install with:\n"
+                "  pip install transformers"
+            )
         self.processor = None
         self.model = None
         self.vision_tower = None
-        self.captured = {}
+        self.penult_hook = None
+        self.captured_hidden = None
         
     def load(self, compile_model: bool = False) -> None:
         """Load SmolVLM model and processor."""
@@ -41,8 +45,11 @@ class SmolVLMAdapter(ModelAdapter):
             trust_remote_code=True,
         ).to("cuda").eval()
         
-        # Get vision tower for vision-only mode
+        # Locate vision tower
         self.vision_tower = self._get_vision_tower()
+        
+        # Setup hook on penultimate layer
+        self._setup_penultimate_hook()
         
         # Apply torch.compile for optimized inference
         if compile_model:
@@ -68,13 +75,16 @@ class SmolVLMAdapter(ModelAdapter):
                 return obj
         raise RuntimeError("Could not locate vision tower in SmolVLM model")
     
-    def _find_penultimate_layer(self, root):
-        """Find the penultimate transformer layer."""
+    def _find_penultimate_layer(self, root, exclude_ids=None):
+        """Find the penultimate transformer layer (second to last)."""
+        exclude_ids = exclude_ids or set()
         best = None
         best_len = 0
         
         for _, mod in root.named_modules():
-            if isinstance(mod, torch.nn.ModuleList) and len(mod) >= 4:
+            if isinstance(mod, nn.ModuleList) and len(mod) >= 4:
+                if len(mod) > 0 and id(mod[0]) in exclude_ids:
+                    continue
                 if len(mod) > best_len:
                     best = mod
                     best_len = len(mod)
@@ -82,12 +92,26 @@ class SmolVLMAdapter(ModelAdapter):
         if best is None:
             raise RuntimeError("Failed to locate transformer blocks")
         
-        # Return penultimate layer (second to last)
-        return best[-2]
+        return best[-2]  # Penultimate layer
+    
+    def _setup_penultimate_hook(self):
+        if self.alias == "smolvlm-vision":
+            # Hook vision tower penultimate layer
+            target = self._find_penultimate_layer(self.vision_tower)
+        else:
+            # Hook full VLM penultimate layer (excluding vision tower modules)
+            vision_ids = {id(x) for x in self.vision_tower.modules()}
+            target = self._find_penultimate_layer(self.model, exclude_ids=vision_ids)
+        
+        def hook_fn(module, input, output):
+            if isinstance(output, (tuple, list)):
+                output = output[0]
+            self.captured_hidden = output
+        
+        self.penult_hook = target.register_forward_hook(hook_fn)
     
     def get_preprocessor(self, modes: Iterable[str]):
-        """Return a callable compatible with datasets.Dataset.map"""
-        # Use the image processor component for preprocessing
+        # Use the image processor component
         image_processor = getattr(self.processor, "image_processor", None) or self.processor
         return PreprocessHF(modes, image_processor, resize=False)
     
@@ -95,114 +119,76 @@ class SmolVLMAdapter(ModelAdapter):
         """
         Extract embeddings from penultimate layer.
         
-        Uses vision tower for 'smolvlm-vision' alias, full model for 'smolvlm' alias.
+        For 'smolvlm-vision': uses vision tower only
+        For 'smolvlm': uses full VLM (requires text prompts)
         """
         # batch is a dict produced by the DataLoader
         inputs = batch[f"{mode}"].to("cuda")
         
-        # Determine which encoder to use based on alias
-        use_vision_only = self.alias == "smolvlm-vision"
-        
-        if use_vision_only:
-            # Vision tower only
-            target_module = self.vision_tower
-            penult_layer = self._find_penultimate_layer(target_module)
-        else:
-            # Full multimodal model - exclude vision tower modules when finding LLM layers
-            vision_ids = {id(x) for x in self.vision_tower.modules()}
-            
-            # Find LLM transformer blocks
-            best = None
-            best_len = 0
-            for _, mod in self.model.named_modules():
-                if isinstance(mod, torch.nn.ModuleList) and len(mod) >= 4:
-                    if len(mod) > 0 and id(mod[0]) not in vision_ids:
-                        if len(mod) > best_len:
-                            best = mod
-                            best_len = len(mod)
-            
-            if best is None:
-                raise RuntimeError("Failed to locate LLM transformer blocks")
-            
-            penult_layer = best[-2]
-        
-        # Register hook to capture penultimate layer output
-        def hook_fn(module, input, output):
-            if isinstance(output, (tuple, list)):
-                output = output[0]
-            self.captured["hidden"] = output
-        
-        handle = penult_layer.register_forward_hook(hook_fn)
-        
-        try:
-            with torch.no_grad():
-                # Use AMP if enabled
-                with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
-                    self.captured["hidden"] = None
+        with torch.no_grad():
+            with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
+                self.captured_hidden = None
+                
+                if self.alias == "smolvlm-vision":
+                    # Vision tower only - simpler and faster
+                    _ = self.vision_tower(pixel_values=inputs, return_dict=True)
+                else:
+                    # Full VLM - need text prompts
+                    batch_size = inputs.shape[0]
                     
-                    if use_vision_only:
-                        # Forward through vision tower only
-                        _ = target_module(pixel_values=inputs, return_dict=True)
+                    # Create minimal text prompts
+                    if hasattr(self.processor, "apply_chat_template"):
+                        messages = [
+                            [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": " "}]}]
+                            for _ in range(batch_size)
+                        ]
+                        prompts = [
+                            self.processor.apply_chat_template(m, add_generation_prompt=False, tokenize=False)
+                            for m in messages
+                        ]
                     else:
-                        # For multimodal, need to create proper inputs with text prompts
-                        # Create minimal prompt for each image
-                        batch_size = inputs.shape[0]
-                        
-                        if hasattr(self.processor, "apply_chat_template"):
-                            messages = [
-                                [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": " "}]}]
-                                for _ in range(batch_size)
-                            ]
-                            prompts = [
-                                self.processor.apply_chat_template(m, add_generation_prompt=False, tokenize=False)
-                                for m in messages
-                            ]
-                        else:
-                            prompts = [" "] * batch_size
-                        
-                        # Note: This is a simplified approach. For proper batching with varying text,
-                        # you may need to handle tokenization separately
-                        text_inputs = self.processor.tokenizer(
-                            prompts,
-                            return_tensors="pt",
-                            padding=True
-                        ).to("cuda")
-                        
-                        _ = self.model(
-                            pixel_values=inputs,
-                            input_ids=text_inputs["input_ids"],
-                            attention_mask=text_inputs.get("attention_mask"),
-                            return_dict=True
-                        )
+                        prompts = [" "] * batch_size
                     
-                    # Get captured hidden states
-                    hidden = self.captured["hidden"]
-                    if hidden is None:
-                        raise RuntimeError("Hook did not capture penultimate layer output")
+                    # Tokenize text
+                    text_inputs = self.processor.tokenizer(
+                        prompts,
+                        return_tensors="pt",
+                        padding=True
+                    ).to("cuda")
                     
-                    # Apply mean pooling
-                    if hidden.dim() == 4:
-                        # (B, C, H, W) -> mean over spatial dims
-                        emb = hidden.mean(dim=(2, 3))
-                    elif hidden.dim() == 3:
-                        # (B, T, C) -> mean over token dim
-                        emb = hidden.mean(dim=1)
-                    else:
-                        # (B, C) -> already pooled
-                        emb = hidden
-                    
-                    # Always return float32 for downstream metric computation
-                    emb = emb.float().detach()
-        
-        finally:
-            handle.remove()
+                    # Forward through full model
+                    _ = self.model(
+                        pixel_values=inputs,
+                        input_ids=text_inputs["input_ids"],
+                        attention_mask=text_inputs.get("attention_mask"),
+                        return_dict=True
+                    )
+                
+                # Get captured hidden states from hook
+                hidden = self.captured_hidden
+                if hidden is None:
+                    raise RuntimeError("Hook did not capture penultimate layer output")
+                
+                # Apply pooling based on tensor shape
+                if hidden.dim() == 4:
+                    # (B, C, H, W)  spatial mean
+                    emb = hidden.mean(dim=(2, 3))
+                elif hidden.dim() == 3:
+                    # (B, T, C) mean over tokens
+                    emb = hidden.mean(dim=1)
+                else:
+                    # (B, C) already pooled
+                    emb = hidden
+                
+            # Always return float32 for downstream metric computation
+            emb = emb.float().detach()
         
         return emb
-
-
-# Register SmolVLM adapters
-# Vision-only mode: uses vision tower penultimate layer
-register_adapter("smolvlm-vision", SmolVLMAdapter)
-
-# Multimodal mode: uses full VLM penultimate layer
-register_adapter("smolvlm", SmolVLMAdapter)
+    
+    def __del__(self):
+        """Clean up hook on deletion."""
+        if self.penult_hook is not None:
+            self.penult_hook.remove()
+if TRANSFORMERS_AVAILABLE:
+    register_adapter("smolvlm-vision", SmolVLMAdapter)
+    register_adapter("smolvlm", SmolVLMAdapter)
