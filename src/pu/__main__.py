@@ -32,6 +32,10 @@ def main():
     parser_comparisons.add_argument("--size", type=str, default=None, 
                                    help="Model size to compare (e.g., 'base', 'large', 'huge'). Use 'all' to process all sizes. Default: first size in file.")
 
+    # Physical properties
+    parser_list = subparsers.add_parser("list-params", help="List available physical parameters for a dataset.")
+    parser_list.add_argument("mode", help="Dataset mode (e.g., 'jwst', 'sdss', 'desi', 'legacysurvey').")
+
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
     parser_benchmark.add_argument("--model", required=True, help="Model to benchmark (e.g., 'vit', 'dino').")
@@ -53,6 +57,17 @@ def main():
     parser_benchmark.add_argument("--output-json", type=str, default=None, help="Save benchmark results to JSON file.")
     parser_benchmark.add_argument("--compare-baseline", type=str, default=None, help="Compare results to a baseline JSON file.")
     args = parser.parse_args()
+
+    if args.command == "list-params":
+        from pu.pu_datasets import list_physical_params
+        params = list_physical_params(args.mode)
+        if params:
+            print(f"Available physical parameters for '{args.mode}':")
+            for p in params:
+                print(f"  - {p}")
+        else:
+            print(f"No physical parameters defined for '{args.mode}'")
+        return
 
     PAIRED_MODES = {"sdss", "desi"}
     if args.command == "run":

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, Callable, Optional, List
+from typing import Iterable, Callable, Optional, List, Set
 
 
 class DatasetAdapter(ABC):
@@ -10,9 +10,16 @@ class DatasetAdapter(ABC):
     transformations so experiments only need to call `prepare(processor, modes, filterfun)`.
     """
 
+    AVAILABLE_PHYSICAL_PARAMS: Set[str] = set()
+
     def __init__(self, hf_ds: str, comp_mode: str):
         self.hf_ds = hf_ds
         self.comp_mode = comp_mode
+
+    @classmethod
+    def list_physical_params(cls) -> List[str]:
+        """Return list of physical parameters available in this dataset."""
+        return sorted(cls.AVAILABLE_PHYSICAL_PARAMS)
 
     @abstractmethod
     def load(self) -> None:
