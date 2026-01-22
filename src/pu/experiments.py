@@ -253,7 +253,7 @@ def run_experiment(
     
     Args:
         model_alias: Model family to use (e.g., 'vit', 'dino', 'convnext')
-        mode: Dataset to compare to HSC ('jwst', 'legacysurvey', 'sdss', 'desi')
+        mode: Dataset to compare to HSC ('jwst', 'legacysurvey', 'sdss', 'desi', 'physical')
         output_dataset: Optional HuggingFace dataset to push results to
         batch_size: Batch size for processing
         num_workers: Number of data loader workers
@@ -267,8 +267,13 @@ def run_experiment(
         Dictionary containing experiment results
     """
     comp_mode = mode
-    modes = ["hsc", comp_mode]
-    hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
+
+    if mode == "physical":
+        modes = ["hsc", "jwst"]
+	hf_ds = "Ashodkh/hsc-jwst-images-high-snr"
+    else:
+        modes = ["hsc", comp_mode]
+        hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
 
     available_sizes, model_names = get_model_config(model_alias)
     
