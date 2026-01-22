@@ -1,4 +1,4 @@
-from typing import Type, Dict
+from typing import Type, Dict, List
 
 _REGISTRY: Dict[str, Type] = {}
 

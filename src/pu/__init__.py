@@ -67,6 +67,11 @@ def compute_physics_divergence(z1, z2, params: Dict, k: int = 10) -> Dict[str, D
     """
     return _get_physics_divergence()(z1, z2, params, k)
 
+def list_available_physical_params(mode: str) -> List[str]:
+    """List physical parameters available for a given dataset mode."""
+    from .pu_datasets import list_physical_params
+    return list_physical_params(mode)
+
 __all__ = [
     "setup_cache_dir", 
     "compare_models_mknn", 
