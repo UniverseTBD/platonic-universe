@@ -107,6 +107,8 @@ def list_models() -> List[str]:
 def _create_filter_function(comp_mode: str):
     """Create the appropriate filter function for a given mode."""
     def filterfun(idx):
+        if comp_mode == "physical":
+            return True
         if comp_mode != "jwst":
             return True
         im = idx["jwst_image"]["flux"][3]
@@ -270,7 +272,7 @@ def run_experiment(
 
     if mode == "physical":
         modes = ["hsc", "jwst"]
-	hf_ds = "Ashodkh/hsc-jwst-images-high-snr"
+        hf_ds = "Ashodkh/hsc-jwst-images-high-snr"
     else:
         modes = ["hsc", comp_mode]
         hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
