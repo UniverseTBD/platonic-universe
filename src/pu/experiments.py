@@ -275,7 +275,10 @@ def run_experiment(
     """
     comp_mode = mode
 
-    if mode == "physical":
+    if mode == "galaxies":
+        modes = ["galaxies"]
+        hf_ds = "Smith42/galaxies"
+    elif mode == "physical":
         modes = ["hsc", "jwst"]
         hf_ds = "Ashodkh/hsc-jwst-images-high-snr"
     else:

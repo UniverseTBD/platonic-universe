@@ -119,7 +119,6 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True):
     """
     Convert raw fluxes to PIL imagery
     """
-
     def _norm(chan, percentiles=None):
         if percentiles is not None:
             # if percentiles are present norm by them
@@ -131,6 +130,12 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True):
             chan = np.arcsinh((chan - np.percentile(chan, 1)) / scale)
             chan = (chan - chan.min()) / (chan.max() - chan.min())
         return chan
+
+    # Galaxies dataset: already processed JPGs (PIL Image, not flux dict)
+    if mode == "galaxies":
+        arr = np.array(blob, dtype=np.float32)  # blob is PIL Image directly
+        # Already RGB 0-255, convert BGR for consistency with other modes
+        return arr[..., ::-1].astype(np.uint8)
 
     arr = np.asarray(blob["flux"], np.float32)
     if mode == "hsc":
