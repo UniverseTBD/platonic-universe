@@ -22,6 +22,8 @@ def main():
                            help="Number of samples to use for physical parameter analysis (default: all).")
     parser_run.add_argument("--intramodal", action="store_true",
                            help="Run intra-modal comparison across model sizes instead of cross-modal.")
+    parser_run.add_argument("--max-samples", type=int, default=None,
+                           help="Limit dataset to N samples for quick testing.")
 
     # Subparser for running comparisons on existing embeddings
     parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
@@ -86,6 +88,7 @@ def main():
             physical_params=args.physical_params,
             n_samples=args.n_samples,
             intramodal=args.intramodal,
+	    max_samples=args.max_samples,
         )
         
         # Save results

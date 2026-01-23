@@ -127,6 +127,7 @@ def _generate_embeddings_for_size(
     batch_size: int,
     num_workers: int,
     physical_params: Optional[List[str]] = None,
+    max_samples: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Generate embeddings for a single model size.
@@ -144,6 +145,8 @@ def _generate_embeddings_for_size(
     
     filterfun = _create_filter_function(comp_mode)
     ds = dataset_adapter.prepare(processor, modes, filterfun, physical_params=physical_params)
+    if max_samples is not None:
+        ds = ds.take(max_samples)
 
     dl = iter(DataLoader(ds, batch_size=batch_size, num_workers=num_workers))
 
@@ -245,6 +248,7 @@ def run_experiment(
     physical_params: Optional[List[str]] = None,
     n_samples: Optional[int] = None,
     intramodal: bool = False,
+    max_samples: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Run embedding experiment.
@@ -301,7 +305,8 @@ def run_experiment(
             num_workers=num_workers,
             knn_k=knn_k,
             physical_params=physical_params,
-            n_samples=n_samples or 1000,
+            n_samples=n_samples,
+	    max_samples=max_samples,
         )
     else:
         return _run_cross_modal(
@@ -316,6 +321,7 @@ def run_experiment(
             knn_k=knn_k,
             physical_params=physical_params,
             n_samples=n_samples,
+	    max_samples=max_samples,
         )
 
 
@@ -331,6 +337,7 @@ def _run_cross_modal(
     knn_k: int,
     physical_params: Optional[List[str]],
     n_samples: Optional[int],
+    max_samples: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Run cross-modal experiment comparing HSC to another modality."""
     
@@ -414,6 +421,7 @@ def _run_intramodal(
     knn_k: int,
     physical_params: Optional[List[str]],
     n_samples: int,
+    max_samples: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Run intra-modal experiment comparing embeddings across model sizes."""
     
@@ -441,6 +449,7 @@ def _run_intramodal(
             batch_size=batch_size,
             num_workers=num_workers,
             physical_params=physical_params,
+            max_samples=max_samples,
         )
         
         # Use HSC embeddings for intra-modal comparison
