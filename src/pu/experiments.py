@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 import numpy as np
@@ -359,6 +360,7 @@ def _run_cross_modal(
             batch_size=batch_size,
             num_workers=num_workers,
             physical_params=physical_params,
+	    max_samples=max_samples,
         )
         
         zs = result["embeddings"]
