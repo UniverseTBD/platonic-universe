@@ -210,8 +210,8 @@ def _compute_cross_modal_metrics(
     cka_score = compute_cka_mmap(str(temp1.name), str(temp2.name), k1.shape[0], k1.shape[1])
     
     # Clean up temp files
-    os.unlink(temp1.name)
-    os.unlink(temp2.name)
+    Path(temp1.name).unlink(missing_ok=True)
+    Path(temp2.name).unlink(missing_ok=True)
 
     metrics = {
         "mknn": float(mknn_score),

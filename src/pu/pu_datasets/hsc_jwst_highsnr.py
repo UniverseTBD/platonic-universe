@@ -51,11 +51,10 @@ class HSCJWSTHighSNRAdapter(DatasetAdapter):
             )
     
             columns_to_select = ['hsc_image', 'hsc_shape', 'jwst_image', 'jwst_shape']
-        if physical_params:
             columns_to_select.extend(physical_params)
     
         ds = load_dataset(self.hf_ds, split="train", streaming=True)
-        ds = select_columns(columns_to_select)
+        ds = ds.select_columns(columns_to_select)
         ds = ds.filter(filterfun)
 
         def reshape_and_process(example):
