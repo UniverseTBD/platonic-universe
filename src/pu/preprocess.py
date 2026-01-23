@@ -135,7 +135,10 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True):
     arr = np.asarray(blob["flux"], np.float32)
     if mode == "hsc":
         if arr.ndim == 3:
-            arr = np.stack([arr[0], arr[1], arr[3]], axis=-1)  # grz
+            if arr.shape[0] == 3: # Assume already processed
+                arr = np.stack([arr[0], arr[1], arr[2]], axis=-1)  
+            else:
+                arr = np.stack([arr[0], arr[1], arr[3]], axis=-1)  # grz
         elif arr.ndim == 2:
             arr = np.stack([arr, arr, arr], axis=-1)
         else:
@@ -163,7 +166,10 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True):
 
     if mode == "jwst":  # 0.04 pixel per arcsec
         if arr.ndim == 3:
-            arr = np.stack([arr[0], arr[4], arr[6]], axis=-1)
+            if arr.shape[0] == 3: # Assume already processed
+                arr = np.stack([arr[0], arr[1], arr[2]], axis=-1)  
+            else:
+                arr = np.stack([arr[0], arr[4], arr[6]], axis=-1)
         elif arr.ndim == 2:
             arr = np.stack([arr, arr, arr], axis=-1)
         else:

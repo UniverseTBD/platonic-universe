@@ -1,13 +1,16 @@
 import os
 import logging
 from types import SimpleNamespace
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
+_log = logging.getLogger(__name__)
+PU_CACHE_DIR: Optional[str] = None
 
 # Public helpers for programmatic use (wrappers around your CLI handlers)
 # Lazy imports to avoid loading transformers/torchvision when only using metrics
 _run_experiment = None
 _mknn = None
+_physics_divergence = None
 
 def _get_run_experiment():
     global _run_experiment
@@ -23,8 +26,12 @@ def _get_mknn():
         _mknn = run_mknn_comparison
     return _mknn
 
-_log = logging.getLogger(__name__)
-PU_CACHE_DIR: Optional[str] = None
+def _get_physics_divergence():
+    global _physics_divergence
+    if _physics_divergence is None:
+        from .metrics import wass_distance
+        _physics_divergence = wass_distance
+    return _physics_divergence
 
 def setup_cache_dir(path: str) -> None:
     """
@@ -52,4 +59,23 @@ def run_experiment(*args, **kwargs):
     """
     return _get_run_experiment()(*args, **kwargs)
 
-__all__ = ["setup_cache_dir", "compare_models_mknn", "run_experiment"] # "get_specformer_embeddings"]
+def compute_physics_divergence(z1, z2, params: Dict, k: int = 10) -> Dict[str, Dict[str, float]]:
+    """
+    Compute physical parameter divergence between two embedding spaces.
+    
+    This is a convenience wrapper for programmatic use.
+    """
+    return _get_physics_divergence()(z1, z2, params, k)
+
+def list_available_physical_params(mode: str) -> List[str]:
+    """List physical parameters available for a given dataset mode."""
+    from .pu_datasets import list_physical_params
+    return list_physical_params(mode)
+
+__all__ = [
+    "setup_cache_dir", 
+    "compare_models_mknn", 
+    "run_experiment", 
+    "compute_physics_divergence", 
+    "list_available_physical_params"
+] # "get_specformer_embeddings"]

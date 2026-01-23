@@ -1,4 +1,4 @@
-from typing import Type, Dict
+from typing import Type, Dict, List
 
 _REGISTRY: Dict[str, Type] = {}
 
@@ -18,3 +18,8 @@ def get_dataset_adapter(alias: str) -> Type:
 def list_datasets() -> list:
     """Return a sorted list of registered dataset adapter aliases."""
     return sorted(list(_REGISTRY.keys()))
+
+def list_physical_params(alias: str) -> List[str]:
+    """Return available physical parameters for a dataset."""
+    adapter_cls = get_dataset_adapter(alias)
+    return adapter_cls.list_physical_params()

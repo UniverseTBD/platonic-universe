@@ -15,13 +15,28 @@ def main():
     parser_run.add_argument("--batch-size", type=int, default=128, help="Batch size for processing.")
     parser_run.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
     parser_run.add_argument("--knn-k", type=int, default=10, help="K value for mutual KNN calculation.")
+    # Physical parameter options
+    parser_run.add_argument("--physical-params", nargs="+", default=None, 
+                           help="Physical parameters to compute Wasserstein distances for (column names in dataset).")
+    parser_run.add_argument("--n-samples", type=int, default=None,
+                           help="Number of samples to use for physical parameter analysis (default: all).")
+    parser_run.add_argument("--intramodal", action="store_true",
+                           help="Run intra-modal comparison across model sizes instead of cross-modal.")
+    parser_run.add_argument("--max-samples", type=int, default=None,
+                           help="Limit dataset to N samples for quick testing.")
 
-    # Subparser for running mknn comparisons
+    # Subparser for running comparisons on existing embeddings
     parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
     parser_comparisons.add_argument("parquet_file", help="Path to the Parquet file with embeddings.")
-    parser_comparisons.add_argument("--metrics", nargs="+", default=["mknn", "jaccard", "cka", "rsm", "procrustes"], help="Metrics to run (e.g., 'mknn', 'jaccard', 'cka', 'rsm', 'procrustes').")
+    parser_comparisons.add_argument("--metrics", nargs="+", default=["mknn", "jaccard", "cka", "rsm", "procrustes"], 
+                                   help="Metrics to run (e.g., 'mknn', 'jaccard', 'cka', 'rsm', 'procrustes').")
     parser_comparisons.add_argument("--k", type=int, default=10, help="K value for mutual KNN calculation.")
-    parser_comparisons.add_argument("--size", type=str, default=None, help="Model size to compare (e.g., 'base', 'large', 'huge'). Use 'all' to process all sizes. Default: first size in file.")
+    parser_comparisons.add_argument("--size", type=str, default=None, 
+                                   help="Model size to compare (e.g., 'base', 'large', 'huge'). Use 'all' to process all sizes. Default: first size in file.")
+
+    # Physical properties
+    parser_list = subparsers.add_parser("list-params", help="List available physical parameters for a dataset.")
+    parser_list.add_argument("mode", help="Dataset mode (e.g., 'jwst', 'sdss', 'desi', 'legacysurvey').")
 
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
@@ -43,8 +58,18 @@ def main():
     # Output
     parser_benchmark.add_argument("--output-json", type=str, default=None, help="Save benchmark results to JSON file.")
     parser_benchmark.add_argument("--compare-baseline", type=str, default=None, help="Compare results to a baseline JSON file.")
-
     args = parser.parse_args()
+
+    if args.command == "list-params":
+        from pu.pu_datasets import list_physical_params
+        params = list_physical_params(args.mode)
+        if params:
+            print(f"Available physical parameters for '{args.mode}':")
+            for p in params:
+                print(f"  - {p}")
+        else:
+            print(f"No physical parameters defined for '{args.mode}'")
+        return
 
     PAIRED_MODES = {"sdss", "desi"}
     if args.command == "run":
@@ -53,7 +78,27 @@ def main():
         if args.mode in PAIRED_MODES and args.num_workers > 0:
             print(f"Warning: Setting num_workers=0 for paired mode '{args.mode}' because multiple workers can change draw order and break pairing.")
             args.num_workers = 0
-        run_experiment(args.model, args.mode, args.output_dataset, args.batch_size, args.num_workers, args.knn_k)
+        results = run_experiment(
+            model_alias=args.model,
+            mode=args.mode,
+            output_dataset=args.output_dataset,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            knn_k=args.knn_k,
+            physical_params=args.physical_params,
+            n_samples=args.n_samples,
+            intramodal=args.intramodal,
+	    max_samples=args.max_samples,
+        )
+        
+        # Save results
+        experiment_type = "intra" if args.intramodal else "cross"
+        output_file = f"data/{args.mode}_{args.model}_{experiment_type}_results.json"
+        os.makedirs("data", exist_ok=True)
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=2, default=str)
+        print(f"\nResults saved to {output_file}")
+        
     elif args.command == "compare":
         # Lazy import to avoid loading transformers/torchvision
         from pu.metrics import run_comparisons
@@ -63,9 +108,7 @@ def main():
         output_file = f"data/{os.path.basename(args.parquet_file)}.json"
         os.makedirs("data", exist_ok=True)
         with open(output_file, "w") as f:
-            json.dump(results, f, indent=2, default=str)  # default=str handles numpy types
-
-        # Print the results
+            json.dump(results, f, indent=2, default=str)
         print(json.dumps(results, indent=2, default=str))
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
@@ -101,6 +144,7 @@ def main():
         print(f"MKNN score: {results['metrics']['mknn_k10']:.4f}")
         print(f"CKA score: {results['metrics']['cka']:.4f}")
         print(f"{'='*60}")
+
 
 if __name__ == "__main__":
     main()
