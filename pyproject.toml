@@ -14,10 +14,11 @@ dependencies = [
     "polars>=1.32.2",
     "scikit-image>=0.25.2",
     "scikit-learn>=1.7.1",
+    "scipy>=1.15.0",
     "torch>=2.8.0",
     "transformers>=4.55.0",
-    "pybind11>=3.0.1"
-
+    "pybind11>=3.0.1",
+    "pytest>=8.0.0",
 ]
 
 [project.optional-dependencies]
@@ -46,3 +47,7 @@ packages = ["src/pu"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
