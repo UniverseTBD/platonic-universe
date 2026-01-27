@@ -142,3 +142,27 @@ def mmd(
 
     # Return MMD (take sqrt, ensuring non-negative)
     return float(np.sqrt(max(mmd_sq, 0.0)))
+
+
+def compute_cka_mmap(file1: str, file2: str, n_rows: int, n_cols: int) -> float:
+    """
+    Compute CKA using memory-mapped kernel matrices via C++ extension.
+    
+    For large-scale computation where kernel matrices don't fit in memory.
+    
+    Args:
+        file1: Path to binary file containing first kernel matrix
+        file2: Path to binary file containing second kernel matrix  
+        n_rows: Number of rows in kernel matrices
+        n_cols: Number of columns in kernel matrices
+        
+    Returns:
+        CKA score in [0, 1]
+    """
+    try:
+        import pu_cka
+        return pu_cka.compute_cka(file1, file2, n_rows, n_cols)
+    except ImportError as e:
+        raise ImportError(
+            "C++ CKA extension (pu_cka) not found. Build with cmake or install the package."
+        ) from e

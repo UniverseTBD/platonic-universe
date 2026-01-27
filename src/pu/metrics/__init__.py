@@ -14,7 +14,7 @@ Usage:
 """
 
 # Kernel-based metrics
-from pu.metrics.kernel import cka, mmd
+from pu.metrics.kernel import cka, mmd, compute_cka_mmap
 
 # Geometric metrics
 from pu.metrics.geometric import procrustes, cosine_similarity, frechet
@@ -58,6 +58,7 @@ __all__ = [
     # Kernel-based
     "cka",
     "mmd",
+    "compute_cka_mmap",
     # Geometric
     "procrustes",
     "cosine_similarity",

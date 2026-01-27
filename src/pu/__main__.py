@@ -15,6 +15,7 @@ def main():
     parser_run.add_argument("--batch-size", type=int, default=128, help="Batch size for processing.")
     parser_run.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
     parser_run.add_argument("--knn-k", type=int, default=10, help="K value for mutual KNN calculation.")
+    parser_run.add_argument("--all-metrics", action="store_true", help="Compute all available metrics (not just MKNN and CKA).")
 
     # Subparser for running metrics comparisons
     parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
@@ -53,7 +54,15 @@ def main():
         if args.mode in PAIRED_MODES and args.num_workers > 0:
             print(f"Warning: Setting num_workers=0 for paired mode '{args.mode}' because multiple workers can change draw order and break pairing.")
             args.num_workers = 0
-        run_experiment(args.model, args.mode, args.output_dataset, args.batch_size, args.num_workers, args.knn_k)
+        run_experiment(
+            args.model,
+            args.mode,
+            args.output_dataset,
+            args.batch_size,
+            args.num_workers,
+            args.knn_k,
+            all_metrics=args.all_metrics,
+        )
     elif args.command == "compare":
         # Lazy import to avoid loading transformers/torchvision
         from pu.metrics import compare_from_parquet
