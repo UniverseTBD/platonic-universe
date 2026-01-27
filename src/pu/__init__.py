@@ -1,13 +1,11 @@
 import os
 import logging
-from types import SimpleNamespace
 from typing import Optional, Dict, Any
 
 
 # Public helpers for programmatic use (wrappers around your CLI handlers)
 # Lazy imports to avoid loading transformers/torchvision when only using metrics
 _run_experiment = None
-_mknn = None
 
 def _get_run_experiment():
     global _run_experiment
@@ -15,13 +13,6 @@ def _get_run_experiment():
         from .experiments import run_experiment
         _run_experiment = run_experiment
     return _run_experiment
-
-def _get_mknn():
-    global _mknn
-    if _mknn is None:
-        from .metrics import run_mknn_comparison
-        _mknn = run_mknn_comparison
-    return _mknn
 
 _log = logging.getLogger(__name__)
 PU_CACHE_DIR: Optional[str] = None
@@ -38,12 +29,21 @@ def setup_cache_dir(path: str) -> None:
     PU_CACHE_DIR = path
     _log.info("Cache dir set to %s", path)
 
-def compare_models_mknn(parquet_file: str) -> Dict[str, Any]:
+def compare_models(parquet_file: str, metrics: list[str] | None = None, **kwargs) -> Dict[str, Any]:
     """
-    Wrapper around the mknn comparison function to return results as a dictionary.
+    Compare models using the new metrics API.
     Accepts the path to a parquet file produced by `run_experiment`.
+
+    Args:
+        parquet_file: Path to parquet file with embeddings
+        metrics: List of metric names to compute (default: all)
+        **kwargs: Additional arguments passed to metrics
+
+    Returns:
+        Dictionary with model info and computed metrics
     """
-    return _get_mknn()(parquet_file)
+    from pu.metrics import compare_from_parquet
+    return compare_from_parquet(parquet_file, metrics=metrics, **kwargs)
 
 def run_experiment(*args, **kwargs):
     """
@@ -52,4 +52,7 @@ def run_experiment(*args, **kwargs):
     """
     return _get_run_experiment()(*args, **kwargs)
 
-__all__ = ["setup_cache_dir", "compare_models_mknn", "run_experiment"] # "get_specformer_embeddings"]
+# Import metrics submodule for pu.metrics.* access
+from pu import metrics
+
+__all__ = ["setup_cache_dir", "compare_models", "run_experiment", "metrics"]

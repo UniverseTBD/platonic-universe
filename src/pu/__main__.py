@@ -15,12 +15,13 @@ def main():
     parser_run.add_argument("--batch-size", type=int, default=128, help="Batch size for processing.")
     parser_run.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
     parser_run.add_argument("--knn-k", type=int, default=10, help="K value for mutual KNN calculation.")
+    parser_run.add_argument("--all-metrics", action="store_true", help="Compute all available metrics (not just MKNN and CKA).")
 
-    # Subparser for running mknn comparisons
+    # Subparser for running metrics comparisons
     parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
     parser_comparisons.add_argument("parquet_file", help="Path to the Parquet file with embeddings.")
-    parser_comparisons.add_argument("--metrics", nargs="+", default=["mknn", "jaccard", "cka", "rsm", "procrustes"], help="Metrics to run (e.g., 'mknn', 'jaccard', 'cka', 'rsm', 'procrustes').")
-    parser_comparisons.add_argument("--k", type=int, default=10, help="K value for mutual KNN calculation.")
+    parser_comparisons.add_argument("--metrics", nargs="+", default=["all"], help="Metrics to run. Use 'all' for all metrics, or specify: cka, mmd, procrustes, cosine_similarity, frechet, svcca, pwcca, tucker_congruence, eigenspectrum, riemannian, kl_divergence, js_divergence, mutual_information, mknn, jaccard, rsa, linear_r2.")
+    parser_comparisons.add_argument("--k", type=int, default=10, help="K value for neighbor-based metrics (mknn, jaccard).")
     parser_comparisons.add_argument("--size", type=str, default=None, help="Model size to compare (e.g., 'base', 'large', 'huge'). Use 'all' to process all sizes. Default: first size in file.")
 
     # Subparser for benchmarking performance optimizations
@@ -53,13 +54,27 @@ def main():
         if args.mode in PAIRED_MODES and args.num_workers > 0:
             print(f"Warning: Setting num_workers=0 for paired mode '{args.mode}' because multiple workers can change draw order and break pairing.")
             args.num_workers = 0
-        run_experiment(args.model, args.mode, args.output_dataset, args.batch_size, args.num_workers, args.knn_k)
+        run_experiment(
+            args.model,
+            args.mode,
+            args.output_dataset,
+            args.batch_size,
+            args.num_workers,
+            args.knn_k,
+            all_metrics=args.all_metrics,
+        )
     elif args.command == "compare":
         # Lazy import to avoid loading transformers/torchvision
-        from pu.metrics import run_comparisons
-        results = run_comparisons(args.parquet_file, args.metrics, args.k, size=args.size)
+        from pu.metrics import compare_from_parquet
+        results = compare_from_parquet(
+            args.parquet_file,
+            metrics=args.metrics,
+            size=args.size,
+            mknn__k=args.k,
+            jaccard__k=args.k,
+        )
 
-        # Save the results to a JSON file under data #TODO: Make this more robust
+        # Save the results to a JSON file under data
         output_file = f"data/{os.path.basename(args.parquet_file)}.json"
         os.makedirs("data", exist_ok=True)
         with open(output_file, "w") as f:
