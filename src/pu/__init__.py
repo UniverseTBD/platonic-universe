@@ -1,11 +1,14 @@
 import os
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 # Public helpers for programmatic use (wrappers around your CLI handlers)
 # Lazy imports to avoid loading transformers/torchvision when only using metrics
 _run_experiment = None
+_run_layerwise_comparison = None
+_run_size_convergence_study = None
+_run_metric_consistency_study = None
 
 def _get_run_experiment():
     global _run_experiment
@@ -13,6 +16,19 @@ def _get_run_experiment():
         from .experiments import run_experiment
         _run_experiment = run_experiment
     return _run_experiment
+
+def _get_layerwise_functions():
+    global _run_layerwise_comparison, _run_size_convergence_study, _run_metric_consistency_study
+    if _run_layerwise_comparison is None:
+        from .experiments_layerwise import (
+            run_layerwise_comparison,
+            run_size_convergence_study, 
+            run_metric_consistency_study
+        )
+        _run_layerwise_comparison = run_layerwise_comparison
+        _run_size_convergence_study = run_size_convergence_study
+        _run_metric_consistency_study = run_metric_consistency_study
+    return _run_layerwise_comparison, _run_size_convergence_study, _run_metric_consistency_study
 
 _log = logging.getLogger(__name__)
 PU_CACHE_DIR: Optional[str] = None
@@ -52,7 +68,49 @@ def run_experiment(*args, **kwargs):
     """
     return _get_run_experiment()(*args, **kwargs)
 
+
+def run_layerwise_comparison(*args, **kwargs):
+    """
+    Compare representations layer-by-layer between two models.
+    
+    See experiments_layerwise.run_layerwise_comparison for full documentation.
+    """
+    fn, _, _ = _get_layerwise_functions()
+    return fn(*args, **kwargs)
+
+
+def run_size_convergence_study(*args, **kwargs):
+    """
+    Study convergence of representations with model size.
+    
+    Compares adjacent size pairs (small->medium, medium->large) to test
+    if alignment increases with model scale.
+    
+    See experiments_layerwise.run_size_convergence_study for full documentation.
+    """
+    _, fn, _ = _get_layerwise_functions()
+    return fn(*args, **kwargs)
+
+
+def run_metric_consistency_study(*args, **kwargs):
+    """
+    Study consistency of optimal layer pairs across different metrics.
+    
+    See experiments_layerwise.run_metric_consistency_study for full documentation.
+    """
+    _, _, fn = _get_layerwise_functions()
+    return fn(*args, **kwargs)
+
+
 # Import metrics submodule for pu.metrics.* access
 from pu import metrics
 
-__all__ = ["setup_cache_dir", "compare_models", "run_experiment", "metrics"]
+__all__ = [
+    "setup_cache_dir", 
+    "compare_models", 
+    "run_experiment", 
+    "run_layerwise_comparison",
+    "run_size_convergence_study",
+    "run_metric_consistency_study",
+    "metrics",
+]

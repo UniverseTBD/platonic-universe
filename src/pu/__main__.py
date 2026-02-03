@@ -24,6 +24,44 @@ def main():
     parser_comparisons.add_argument("--k", type=int, default=10, help="K value for neighbor-based metrics (mknn, jaccard).")
     parser_comparisons.add_argument("--size", type=str, default=None, help="Model size to compare (e.g., 'base', 'large', 'huge'). Use 'all' to process all sizes. Default: first size in file.")
 
+    # Subparser for layer-by-layer comparison
+    parser_layerwise = subparsers.add_parser("layerwise", help="Run layer-by-layer comparison between models.")
+    parser_layerwise.add_argument("--model-a", required=True, help="First model alias (e.g., 'smolvlm').")
+    parser_layerwise.add_argument("--size-a", required=True, help="First model size (e.g., '256M').")
+    parser_layerwise.add_argument("--model-b", required=True, help="Second model alias.")
+    parser_layerwise.add_argument("--size-b", required=True, help="Second model size.")
+    parser_layerwise.add_argument("--mode", default="jwst", help="Dataset mode (e.g., 'jwst', 'legacysurvey').")
+    parser_layerwise.add_argument("--metrics", nargs="+", default=["mknn", "cka"], help="Metrics to compute.")
+    parser_layerwise.add_argument("--mknn-k", nargs="+", type=int, default=[5, 10, 20], help="K values for MKNN.")
+    parser_layerwise.add_argument("--batch-size", type=int, default=32, help="Batch size for processing.")
+    parser_layerwise.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
+    parser_layerwise.add_argument("--max-samples", type=int, default=None, help="Limit dataset to N samples.")
+    parser_layerwise.add_argument("--output-dir", default="data/layerwise", help="Output directory for results.")
+    
+    # Subparser for size convergence study
+    parser_convergence = subparsers.add_parser("convergence", help="Study representation convergence with model size.")
+    parser_convergence.add_argument("--model", default="smolvlm", help="Model family (e.g., 'smolvlm').")
+    parser_convergence.add_argument("--sizes", nargs="+", default=["256M", "500M", "2.2B"], help="Model sizes in order.")
+    parser_convergence.add_argument("--mode", default="jwst", help="Dataset mode.")
+    parser_convergence.add_argument("--metrics", nargs="+", default=["mknn", "cka"], help="Metrics to compute.")
+    parser_convergence.add_argument("--mknn-k", nargs="+", type=int, default=[5, 10, 20], help="K values for MKNN.")
+    parser_convergence.add_argument("--batch-size", type=int, default=32, help="Batch size.")
+    parser_convergence.add_argument("--max-samples", type=int, default=None, help="Limit samples.")
+    parser_convergence.add_argument("--output-dir", default="data/layerwise", help="Output directory.")
+    
+    # Subparser for metric consistency study
+    parser_consistency = subparsers.add_parser("consistency", help="Study consistency of optimal layers across metrics.")
+    parser_consistency.add_argument("--model-a", required=True, help="First model alias.")
+    parser_consistency.add_argument("--size-a", required=True, help="First model size.")
+    parser_consistency.add_argument("--model-b", required=True, help="Second model alias.")
+    parser_consistency.add_argument("--size-b", required=True, help="Second model size.")
+    parser_consistency.add_argument("--mode", default="jwst", help="Dataset mode.")
+    parser_consistency.add_argument("--metrics", nargs="+", default=["mknn", "cka", "procrustes", "cosine_similarity"], help="Metrics to compare.")
+    parser_consistency.add_argument("--mknn-k", nargs="+", type=int, default=[5, 10, 20, 50], help="K values for MKNN ablation.")
+    parser_consistency.add_argument("--batch-size", type=int, default=32, help="Batch size.")
+    parser_consistency.add_argument("--max-samples", type=int, default=None, help="Limit samples.")
+    parser_consistency.add_argument("--output-dir", default="data/layerwise", help="Output directory.")
+
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
     parser_benchmark.add_argument("--model", required=True, help="Model to benchmark (e.g., 'vit', 'dino').")
@@ -82,6 +120,48 @@ def main():
 
         # Print the results
         print(json.dumps(results, indent=2, default=str))
+    elif args.command == "layerwise":
+        # Lazy import
+        from pu.experiments_layerwise import run_layerwise_comparison
+        run_layerwise_comparison(
+            model_a_alias=args.model_a,
+            model_a_size=args.size_a,
+            model_b_alias=args.model_b,
+            model_b_size=args.size_b,
+            mode=args.mode,
+            metrics=args.metrics,
+            mknn_k_values=args.mknn_k,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            max_samples=args.max_samples,
+            output_dir=args.output_dir,
+        )
+    elif args.command == "convergence":
+        from pu.experiments_layerwise import run_size_convergence_study
+        run_size_convergence_study(
+            model_alias=args.model,
+            sizes=args.sizes,
+            mode=args.mode,
+            metrics=args.metrics,
+            mknn_k_values=args.mknn_k,
+            batch_size=args.batch_size,
+            max_samples=args.max_samples,
+            output_dir=args.output_dir,
+        )
+    elif args.command == "consistency":
+        from pu.experiments_layerwise import run_metric_consistency_study
+        run_metric_consistency_study(
+            model_a_alias=args.model_a,
+            model_a_size=args.size_a,
+            model_b_alias=args.model_b,
+            model_b_size=args.size_b,
+            mode=args.mode,
+            metrics=args.metrics,
+            mknn_k_values=args.mknn_k,
+            batch_size=args.batch_size,
+            max_samples=args.max_samples,
+            output_dir=args.output_dir,
+        )
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
 

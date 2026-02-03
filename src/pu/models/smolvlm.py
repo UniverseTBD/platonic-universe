@@ -1,5 +1,7 @@
+from typing import Any, Dict, Iterable, List
+
 import torch
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+
 from pu.models.base import ModelAdapter
 from pu.models.registry import register_adapter
 
@@ -35,6 +37,7 @@ class SmolVLMAdapter(ModelAdapter):
         self.model = None
         self._hooks = []
         self._layer_outputs = {}
+        self.device = "cpu"  # Set in load()
 
     def load(self, compile_model: bool = False) -> None:
         # Auto-detect device (GPU if available, else CPU)
@@ -164,6 +167,10 @@ class SmolVLMAdapter(ModelAdapter):
             emb = emb.float().detach()
         
         return emb
+
+    def supports_layerwise(self) -> bool:
+        """SmolVLM supports layer-by-layer extraction via forward hooks."""
+        return True
 
     def get_num_layers(self) -> int:
         """
