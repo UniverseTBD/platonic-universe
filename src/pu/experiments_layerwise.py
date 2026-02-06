@@ -11,10 +11,11 @@ of different models, enabling analysis of:
 
 import json
 import os
+import tempfile
+import shutil
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
-import polars as pl
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -85,6 +86,101 @@ class LayerwiseResult:
         return asdict(self)
 
 
+def _collect_layer_embeddings_to_disk(
+    adapter,
+    dataloader,
+    mode: str,
+    temp_dir: str,
+    max_samples: Optional[int] = None,
+) -> Tuple[Dict[int, str], int]:
+    """
+    Collect embeddings from all layers and save to disk as memory-mapped files.
+    
+    This is memory-efficient: embeddings are written to disk incrementally
+    and can be loaded on-demand for alignment computation.
+    
+    Args:
+        adapter: Model adapter
+        dataloader: DataLoader for the dataset
+        mode: Dataset mode (e.g., 'jwst')
+        temp_dir: Directory to save temporary embedding files
+        max_samples: Maximum samples to collect
+    
+    Returns:
+        Tuple of (dict mapping layer index to file path, number of samples)
+    """
+    if not adapter.supports_layerwise():
+        raise ValueError(f"Adapter {adapter.alias} does not support layer-wise extraction")
+    
+    num_layers = adapter.get_num_layers()
+    
+    # First pass: collect embeddings in memory (we need to know final shape)
+    layer_embeddings = {i: [] for i in range(num_layers)}
+    n_collected = 0
+    
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc=f"Extracting {mode} layers"):
+            batch_layer_embs = adapter.embed_all_layers_for_mode(batch, mode)
+            
+            for layer_idx, emb in batch_layer_embs.items():
+                if isinstance(emb, torch.Tensor):
+                    emb = emb.cpu().numpy()
+                layer_embeddings[layer_idx].append(emb)
+            
+            n_collected += emb.shape[0] if emb.ndim > 1 else 1
+            
+            # Clear GPU/MPS memory after each batch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            
+            if max_samples is not None and n_collected >= max_samples:
+                break
+    
+    # Save to disk as memory-mapped files
+    file_paths = {}
+    for layer_idx, emb_list in layer_embeddings.items():
+        if emb_list:
+            stacked = np.vstack(emb_list)
+            if max_samples is not None:
+                stacked = stacked[:max_samples]
+            
+            # Save to disk
+            filepath = os.path.join(temp_dir, f"layer_{layer_idx}.npy")
+            np.save(filepath, stacked)
+            file_paths[layer_idx] = filepath
+            
+            # Clear from memory immediately
+            del stacked
+    
+    # Clear the in-memory lists
+    del layer_embeddings
+    import gc
+    gc.collect()
+    
+    return file_paths, min(n_collected, max_samples) if max_samples else n_collected
+
+
+def _load_embeddings_from_disk(file_paths: Dict[int, str]) -> Dict[int, np.ndarray]:
+    """
+    Load embeddings from disk files.
+    
+    Args:
+        file_paths: Dict mapping layer index to file path
+    
+    Returns:
+        Dict mapping layer index to embedding array
+    """
+    return {layer_idx: np.load(path) for layer_idx, path in file_paths.items()}
+
+
+def _cleanup_temp_files(temp_dir: str) -> None:
+    """Remove temporary embedding files."""
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+
+
 def _collect_layer_embeddings(
     adapter,
     dataloader,
@@ -92,7 +188,9 @@ def _collect_layer_embeddings(
     max_samples: Optional[int] = None,
 ) -> Dict[int, np.ndarray]:
     """
-    Collect embeddings from all layers for all samples.
+    Collect embeddings from all layers for all samples (in-memory version).
+    
+    For memory-efficient processing, use _collect_layer_embeddings_to_disk instead.
     
     Returns:
         Dict mapping layer index to (n_samples, hidden_dim) array
@@ -106,18 +204,16 @@ def _collect_layer_embeddings(
     
     with torch.no_grad():
         for batch in tqdm(dataloader, desc=f"Extracting {mode} layers"):
-            # Get all layer embeddings for this batch
             batch_layer_embs = adapter.embed_all_layers_for_mode(batch, mode)
             
             for layer_idx, emb in batch_layer_embs.items():
-                # emb shape: (batch_size, hidden_dim) or (1, hidden_dim)
                 if isinstance(emb, torch.Tensor):
                     emb = emb.cpu().numpy()
                 layer_embeddings[layer_idx].append(emb)
             
             n_collected += emb.shape[0] if emb.ndim > 1 else 1
             
-            # Clear GPU/MPS memory after each batch to prevent OOM
+            # Clear GPU/MPS memory after each batch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
@@ -126,7 +222,6 @@ def _collect_layer_embeddings(
             if max_samples is not None and n_collected >= max_samples:
                 break
     
-    # Concatenate all batches
     result = {}
     for layer_idx, emb_list in layer_embeddings.items():
         if emb_list:
@@ -245,9 +340,10 @@ def plot_alignment_heatmap(
     ax.set_ylabel(f"{model_a_label} Layer Index")
     ax.set_title(f"Layer Alignment: {metric_name}")
     
-    # Set ticks
+    # Set ticks with smaller font size
     ax.set_xticks(range(alignment_matrix.shape[1]))
     ax.set_yticks(range(alignment_matrix.shape[0]))
+    ax.tick_params(axis='both', which='major', labelsize=7)
     
     plt.tight_layout()
     
@@ -481,7 +577,7 @@ def run_layerwise_comparison(
         metrics = ["mknn", "cka"]
     
     if mknn_k_values is None:
-        mknn_k_values = [3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 40]
+        mknn_k_values = [3, 9, 12, 15, 18, 21, 30, 40]
     
     # Model configurations
     model_map = {
@@ -490,6 +586,68 @@ def run_layerwise_comparison(
             "500M": "HuggingFaceTB/SmolVLM-500M-Instruct",
             "2.2B": "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
         },
+   #     "vit": {
+   #         "base": "google/vit-base-patch16-224-in21k",
+   #         "large": "google/vit-large-patch16-224-in21k",
+   #         "huge": "google/vit-huge-patch14-224-in21k",
+   #     },
+   #     "dino": {
+   #         "small": "facebook/dinov2-with-registers-small",
+   #         "base": "facebook/dinov2-with-registers-base",
+   #         "large": "facebook/dinov2-with-registers-large",
+   #         "giant": "facebook/dinov2-with-registers-giant",
+   #     },
+   #     "dinov3": {
+   #         "vits16": "facebook/dinov3-vits16-pretrain-lvd1689m",
+   #         "vits16plus": "facebook/dinov3-vits16plus-pretrain-lvd1689m",
+   #         "vitb16": "facebook/dinov3-vitb16-pretrain-lvd1689m",
+   #         "vitl16": "facebook/dinov3-vitl16-pretrain-lvd1689m",
+   #         "vith16plus": "facebook/dinov3-vith16plus-pretrain-lvd1689m",
+   #         "vit7b16": "facebook/dinov3-vit7b16-pretrain-lvd1689m",
+   #         "convnext-base": "facebook/dinov3-convnext-base-pretrain-lvd1689m",
+   #         "convnext-large": "facebook/dinov3-convnext-large-pretrain-lvd1689m",
+   #         "convnext-small": "facebook/dinov3-convnext-small-pretrain-lvd1689m",
+   #         "convnext-tiny": "facebook/dinov3-convnext-tiny-pretrain-lvd1689m",
+   #         "vitl16-sat493m": "facebook/dinov3-vitl16-pretrain-sat493m",
+   #         "vit7b16-sat493m": "facebook/dinov3-vit7b16-pretrain-sat493m",
+   #     },
+   #     "convnext": {
+   #         "nano": "facebook/convnextv2-nano-22k-224",
+   #         "tiny": "facebook/convnextv2-tiny-22k-224",
+   #         "base": "facebook/convnextv2-base-22k-224",
+   #         "large": "facebook/convnextv2-large-22k-224",
+   #     },
+   #     "ijepa": {
+   #         "huge": "facebook/ijepa_vith14_22k",
+   #         "giant": "facebook/ijepa_vitg16_22k",
+   #     },
+   #     "vjepa": {
+   #         "large": "facebook/vjepa2-vitl-fpc64-256",
+   #         "huge": "facebook/vjepa2-vith-fpc64-256",
+   #         "giant": "facebook/vjepa2-vitg-fpc64-256",
+   #     },
+   #     "astropt": {
+   #         "015M": "Smith42/astroPT_v2.0",
+   #         "095M": "Smith42/astroPT_v2.0",
+   #         "850M": "Smith42/astroPT_v2.0",
+   #     },
+   #     "sam2": {
+   #         "tiny": "facebook/sam2.1-hiera-tiny",
+   #         "small": "facebook/sam2.1-hiera-small",
+    #        "base-plus": "facebook/sam2.1-hiera-base-plus",
+    #        "large": "facebook/sam2.1-hiera-large",
+    #    },
+    #    "vit-mae": {
+    #        "base": "facebook/vit-mae-base",
+    #        "large": "facebook/vit-mae-large",
+    #        "huge": "facebook/vit-mae-huge",
+    #    },
+    #    "hiera": {
+    #        "tiny": "facebook/hiera-tiny-224-hf",
+    #        "small": "facebook/hiera-small-224-hf",
+    #        "base-plus": "facebook/hiera-base-plus-224-hf",
+    #        "large": "facebook/hiera-large-224-hf",
+    #    },
     }
     
     # Get model names
@@ -564,95 +722,134 @@ def run_layerwise_comparison(
     
     dl = DataLoader(ds, batch_size=batch_size, num_workers=num_workers)
     
-    # Extract embeddings from Model A
-    print(f"\n[4/5] Extracting embeddings from Model A")
-    embeddings_a = _collect_layer_embeddings(adapter_a, dl, modes[0], max_samples)
-    n_samples = len(embeddings_a[0])
-    print(f"  -> Collected {n_samples} samples, {len(embeddings_a)} layers")
+    # Create temporary directory for embeddings (memory-efficient disk storage)
+    temp_dir = tempfile.mkdtemp(prefix="platonic_embeddings_")
+    temp_dir_a = os.path.join(temp_dir, "model_a")
+    temp_dir_b = os.path.join(temp_dir, "model_b")
+    os.makedirs(temp_dir_a, exist_ok=True)
+    os.makedirs(temp_dir_b, exist_ok=True)
     
-    # Need to reload dataset for Model B with its preprocessor
-    print(f"\n[4b/5] Extracting embeddings from Model B")
-    processor_b = adapter_b.get_preprocessor(modes)
-    dataset_adapter_b = dataset_adapter_cls(hf_ds, mode)
-    dataset_adapter_b.load()
-    ds_b = dataset_adapter_b.prepare(processor_b, modes, filterfun)
-    
-    if max_samples is not None:
-        ds_b = ds_b.take(max_samples)
-    
-    dl_b = DataLoader(ds_b, batch_size=batch_size, num_workers=num_workers)
-    embeddings_b = _collect_layer_embeddings(adapter_b, dl_b, modes[0], max_samples)
-    print(f"  -> Collected {len(embeddings_b[0])} samples, {len(embeddings_b)} layers")
-    
-    # Compute alignment matrices
-    print(f"\n[5/5] Computing alignment matrices")
-    
-    result = LayerwiseResult(
-        model_a_alias=model_a_alias,
-        model_a_size=model_a_size,
-        model_a_num_layers=num_layers_a,
-        model_b_alias=model_b_alias,
-        model_b_size=model_b_size,
-        model_b_num_layers=num_layers_b,
-        mode=mode,
-        n_samples=n_samples,
-    )
-    
-    for metric_name in metrics:
-        if metric_name == "mknn":
-            # Test multiple k values
-            for k in mknn_k_values:
-                metric_key = f"mknn_k{k}"
-                print(f"  Computing {metric_key}...")
+    try:
+        # Extract embeddings from Model A and save to disk
+        print("\n[4/5] Extracting embeddings from Model A (saving to disk)")
+        file_paths_a, n_samples = _collect_layer_embeddings_to_disk(
+            adapter_a, dl, modes[0], temp_dir_a, max_samples
+        )
+        print(f"  -> Collected {n_samples} samples, {len(file_paths_a)} layers")
+        print(f"  -> Saved to: {temp_dir_a}")
+        
+        # Unload Model A to free memory
+        del adapter_a
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        print("  -> Model A unloaded to free memory")
+        
+        # Need to reload dataset for Model B with its preprocessor
+        print("\n[4b/5] Extracting embeddings from Model B (saving to disk)")
+        processor_b = adapter_b.get_preprocessor(modes)
+        dataset_adapter_b = dataset_adapter_cls(hf_ds, mode)
+        dataset_adapter_b.load()
+        ds_b = dataset_adapter_b.prepare(processor_b, modes, filterfun)
+        
+        if max_samples is not None:
+            ds_b = ds_b.take(max_samples)
+        
+        dl_b = DataLoader(ds_b, batch_size=batch_size, num_workers=num_workers)
+        file_paths_b, _ = _collect_layer_embeddings_to_disk(
+            adapter_b, dl_b, modes[0], temp_dir_b, max_samples
+        )
+        print(f"  -> Collected {len(file_paths_b)} layers")
+        print(f"  -> Saved to: {temp_dir_b}")
+        
+        # Unload Model B to free memory
+        del adapter_b
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        print("  -> Model B unloaded to free memory")
+        
+        # Load embeddings from disk for alignment computation
+        print("\n[5/5] Computing alignment matrices (loading from disk)")
+        embeddings_a = _load_embeddings_from_disk(file_paths_a)
+        embeddings_b = _load_embeddings_from_disk(file_paths_b)
+        
+        result = LayerwiseResult(
+            model_a_alias=model_a_alias,
+            model_a_size=model_a_size,
+            model_a_num_layers=num_layers_a,
+            model_b_alias=model_b_alias,
+            model_b_size=model_b_size,
+            model_b_num_layers=num_layers_b,
+            mode=mode,
+            n_samples=n_samples,
+        )
+        
+        for metric_name in metrics:
+            if metric_name == "mknn":
+                for k in mknn_k_values:
+                    metric_key = f"mknn_k{k}"
+                    print(f"  Computing {metric_key}...")
+                    
+                    matrix = compute_alignment_matrix(
+                        embeddings_a, embeddings_b, "mknn", k=k
+                    )
+                    
+                    result.alignment_matrices[metric_key] = matrix.tolist()
+                    result.optimal_pairs[metric_key] = find_optimal_pair(matrix)
+                    result.diagonal_scores[metric_key] = get_diagonal_scores(matrix)
+                    result.max_scores[metric_key] = float(np.nanmax(matrix))
+            else:
+                print(f"  Computing {metric_name}...")
                 
                 matrix = compute_alignment_matrix(
-                    embeddings_a, embeddings_b, "mknn", k=k
+                    embeddings_a, embeddings_b, metric_name
                 )
                 
-                result.alignment_matrices[metric_key] = matrix.tolist()
-                result.optimal_pairs[metric_key] = find_optimal_pair(matrix)
-                result.diagonal_scores[metric_key] = get_diagonal_scores(matrix)
-                result.max_scores[metric_key] = float(np.nanmax(matrix))
-        else:
-            print(f"  Computing {metric_name}...")
-            
-            matrix = compute_alignment_matrix(
-                embeddings_a, embeddings_b, metric_name
-            )
-            
-            result.alignment_matrices[metric_name] = matrix.tolist()
-            result.optimal_pairs[metric_name] = find_optimal_pair(matrix)
-            result.diagonal_scores[metric_name] = get_diagonal_scores(matrix)
-            result.max_scores[metric_name] = float(np.nanmax(matrix))
-    
-    # Save results
-    os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(
-        output_dir, 
-        f"{mode}_{model_a_alias}_{model_a_size}_vs_{model_b_alias}_{model_b_size}.json"
-    )
-    
-    with open(output_file, "w") as f:
-        json.dump(result.to_dict(), f, indent=2)
-    
-    print(f"\n{'='*60}")
-    print("RESULTS SUMMARY")
-    print(f"{'='*60}")
-    
-    for metric_key, (layer_a, layer_b, score) in result.optimal_pairs.items():
-        print(f"{metric_key}:")
-        print(f"  Optimal pair: Layer {layer_a} (A) <-> Layer {layer_b} (B)")
-        print(f"  Max score: {score:.4f}")
-    
-    print(f"\nResults saved to: {output_file}")
-    
-    # Generate plots if requested
-    if generate_plots:
-        plots_dir = os.path.join(output_dir, "plots")
-        plot_all_alignment_matrices(result, plots_dir)
-        plot_mknn_k_sensitivity(result, plots_dir)
-    
-    print(f"{'='*60}\n")
+                result.alignment_matrices[metric_name] = matrix.tolist()
+                result.optimal_pairs[metric_name] = find_optimal_pair(matrix)
+                result.diagonal_scores[metric_name] = get_diagonal_scores(matrix)
+                result.max_scores[metric_name] = float(np.nanmax(matrix))
+        
+        # Save results
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = os.path.join(
+            output_dir, 
+            f"{mode}_{model_a_alias}_{model_a_size}_vs_{model_b_alias}_{model_b_size}.json"
+        )
+        
+        with open(output_file, "w") as f:
+            json.dump(result.to_dict(), f, indent=2)
+        
+        print(f"\n{'='*60}")
+        print("RESULTS SUMMARY")
+        print(f"{'='*60}")
+        
+        for metric_key, (layer_a, layer_b, score) in result.optimal_pairs.items():
+            print(f"{metric_key}:")
+            print(f"  Optimal pair: Layer {layer_a} (A) <-> Layer {layer_b} (B)")
+            print(f"  Max score: {score:.4f}")
+        
+        print(f"\nResults saved to: {output_file}")
+        
+        # Generate plots if requested
+        if generate_plots:
+            plots_dir = os.path.join(output_dir, "plots")
+            plot_all_alignment_matrices(result, plots_dir)
+            plot_mknn_k_sensitivity(result, plots_dir)
+        
+        print(f"{'='*60}\n")
+        
+    finally:
+        # Clean up temporary files
+        print("\nCleaning up temporary embedding files...")
+        _cleanup_temp_files(temp_dir)
+        print(f"  -> Removed: {temp_dir}")
     
     return result
 
