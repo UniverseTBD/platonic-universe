@@ -1,5 +1,13 @@
 import torch
-from transformers import AutoModel, AutoImageProcessor, AutoVideoProcessor, HieraModel
+from transformers import AutoModel, AutoImageProcessor
+try:
+    from transformers import AutoVideoProcessor
+except ImportError:
+    AutoVideoProcessor = None  # Not available in older transformers
+try:
+    from transformers import HieraModel
+except ImportError:
+    HieraModel = None  # Not available in older transformers
 from typing import Any, Dict, Iterable
 from pu.models.base import ModelAdapter
 from pu.preprocess import PreprocessHF
@@ -28,14 +36,20 @@ class HFAdapter(ModelAdapter):
 
     def load(self, compile_model: bool = False) -> None:
         if self.alias == "vjepa":
+            if AutoVideoProcessor is None:
+                raise ImportError("AutoVideoProcessor requires transformers>=4.40. Please upgrade transformers or use a different model.")
             self.processor = AutoVideoProcessor.from_pretrained(self.model_name)
         else:
             self.processor = AutoImageProcessor.from_pretrained(self.model_name)
 
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        
         if self.alias == "hiera":
-            self.model = HieraModel.from_pretrained(self.model_name).to("cuda").eval()
+            if HieraModel is None:
+                raise ImportError("HieraModel requires transformers>=4.40. Please upgrade transformers or use a different model.")
+            self.model = HieraModel.from_pretrained(self.model_name).to(self.device).eval()
         else:
-            self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
+            self.model = AutoModel.from_pretrained(self.model_name).to(self.device).eval()
 
         # Apply torch.compile for optimized inference
         if compile_model:
@@ -52,10 +66,11 @@ class HFAdapter(ModelAdapter):
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         # batch is a dict produced by the DataLoader; HF preprocess stores tensors under f"{mode}"
-        inputs = batch[f"{mode}"].to("cuda")
+        inputs = batch[f"{mode}"].to(self.device)
         with torch.no_grad():
             # Use AMP if enabled for faster inference with lower memory
-            with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
+            device_type = "cuda" if self.device == "cuda" else "cpu"
+            with torch.amp.autocast(device_type, enabled=self._use_amp, dtype=torch.float16):
                 outputs = self.model(inputs).last_hidden_state
                 if self.alias == "vit" or self.alias == "vit-mae":
                     emb = outputs[:, 1:].mean(dim=1)

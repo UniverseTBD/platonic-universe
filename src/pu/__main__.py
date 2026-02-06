@@ -12,7 +12,7 @@ def main():
     parser_run.add_argument("--model", required=True, help="Model to run inference on (e.g., 'vit', 'dino', 'astropt').")
     parser_run.add_argument("--mode", required=True, help="Dataset to compare to HSC (e.g., 'jwst', 'legacysurvey', 'sdss', 'desi').")
     parser_run.add_argument("--output-dataset", help="Output HuggingFace dataset.")
-    parser_run.add_argument("--batch-size", type=int, default=128, help="Batch size for processing.")
+    parser_run.add_argument("--batch-size", type=int, help="Batch size for processing.")
     parser_run.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
     parser_run.add_argument("--knn-k", type=int, default=10, help="K value for mutual KNN calculation.")
     parser_run.add_argument("--all-metrics", action="store_true", help="Compute all available metrics (not just MKNN and CKA).")
@@ -32,7 +32,10 @@ def main():
     parser_layerwise.add_argument("--size-b", required=True, help="Second model size.")
     parser_layerwise.add_argument("--mode", default="jwst", help="Dataset mode (e.g., 'jwst', 'legacysurvey').")
     parser_layerwise.add_argument("--metrics", nargs="+", default=["mknn", "cka"], help="Metrics to compute.")
-    parser_layerwise.add_argument("--mknn-k", nargs="+", type=int, default=[5, 10, 20], help="K values for MKNN.")
+    parser_layerwise.add_argument("--mknn-k", nargs="+", type=int, default=None, help="K values for MKNN. Default: 19 values from 5 to 40.")
+    parser_layerwise.add_argument("--no-plots", action="store_true", help="Skip generating plots.")
+    parser_layerwise.add_argument("--force-cpu", action="store_true", help="Force CPU instead of GPU (slower but uses system RAM).")
+    parser_layerwise.add_argument("--include-llm", action="store_true", help="Include LLM layers in addition to vision encoder (more memory, slower).")
     parser_layerwise.add_argument("--batch-size", type=int, default=32, help="Batch size for processing.")
     parser_layerwise.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
     parser_layerwise.add_argument("--max-samples", type=int, default=None, help="Limit dataset to N samples.")
@@ -42,9 +45,9 @@ def main():
     parser_convergence = subparsers.add_parser("convergence", help="Study representation convergence with model size.")
     parser_convergence.add_argument("--model", default="smolvlm", help="Model family (e.g., 'smolvlm').")
     parser_convergence.add_argument("--sizes", nargs="+", default=["256M", "500M", "2.2B"], help="Model sizes in order.")
-    parser_convergence.add_argument("--mode", default="jwst", help="Dataset mode.")
+    parser_convergence.add_argument("--mode", default="jwst", help="Dataset mode (e.g., 'jwst', 'legacysurvey', 'sdss', 'desi').")
     parser_convergence.add_argument("--metrics", nargs="+", default=["mknn", "cka"], help="Metrics to compute.")
-    parser_convergence.add_argument("--mknn-k", nargs="+", type=int, default=[5, 10, 20], help="K values for MKNN.")
+    parser_convergence.add_argument("--mknn-k", nargs="+", type=int, help="K values for MKNN.")
     parser_convergence.add_argument("--batch-size", type=int, default=32, help="Batch size.")
     parser_convergence.add_argument("--max-samples", type=int, default=None, help="Limit samples.")
     parser_convergence.add_argument("--output-dir", default="data/layerwise", help="Output directory.")
@@ -135,6 +138,9 @@ def main():
             num_workers=args.num_workers,
             max_samples=args.max_samples,
             output_dir=args.output_dir,
+            generate_plots=not args.no_plots,
+            force_cpu=args.force_cpu,
+            include_llm=args.include_llm,
         )
     elif args.command == "convergence":
         from pu.experiments_layerwise import run_size_convergence_study

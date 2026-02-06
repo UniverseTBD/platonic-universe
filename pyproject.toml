@@ -3,26 +3,28 @@ name = "platonic-universe"
 version = "0.1.0"
 description = "Scripts to test the Platonic Representation Hypothesis on astronomical data"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11"  # Apple Silicon supports all Python versions
 dependencies = [
     "argparse>=1.4.0",
     "astropt>=2.0.5",
-    "llvmlite>=0.44.0",
-    "numpy>=2.3.2",
-    "opencv-python>=4.11.0.86",
+    "pyarrow>=15.0,<18.0",  # Pin to avoid building from source on Intel Mac
+    "wandb>=0.18.7,<0.19",  # Pin to avoid building from source on Intel Mac
+    "llvmlite>=0.42.0,<0.44",  # 0.44+ requires cmake to build on some platforms
+    "numpy>=1.24.0",  # Use latest numpy with newer torch
+    "opencv-python>=4.8.0",  # Apple Silicon has wheels for all versions
     "pillow>=11.3.0",
-    "polars>=1.32.2",
+    "polars>=1.32.2",  # Apple Silicon doesn't need rtcompat
     "scikit-image>=0.25.2",
-    "scikit-learn>=1.7.1",
+    "scikit-learn>=1.3.0",
     "scipy>=1.15.0",
-    "torch>=2.8.0",
-    "transformers>=4.55.0",
+    "torch>=2.4.0",  # Apple Silicon has wheels for all versions
+    "transformers>=4.45.0",  # Need 4.45+ for SmolVLM support
     "pybind11>=3.0.1",
     "pytest>=8.0.0",
 ]
 
 [project.optional-dependencies]
-sam2 = ["sam-2 @ git+https://github.com/facebookresearch/sam2.git"]
+# sam2 = ["sam-2 @ git+https://github.com/facebookresearch/sam2.git"]  # Disabled: no torch wheels for Intel Mac
 
 [build-system]  
 requires = ["setuptools>=42", "wheel", "pybind11>=2.10"]
@@ -39,8 +41,8 @@ ignore = ["E501"]
 package = true
 
 [tool.uv.sources]
-transformers = { git = "https://github.com/huggingface/transformers.git" }
-sam-2 = { git = "https://github.com/facebookresearch/sam2.git" }
+# transformers = { git = "https://github.com/huggingface/transformers.git" }  # Disabled: requires git/Xcode license
+# sam-2 = { git = "https://github.com/facebookresearch/sam2.git" }  # Disabled: no torch wheels for Intel Mac
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pu"]

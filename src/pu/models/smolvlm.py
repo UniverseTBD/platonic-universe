@@ -5,8 +5,22 @@ import torch
 from pu.models.base import ModelAdapter
 from pu.models.registry import register_adapter
 
+# Monkey-patch torch.is_autocast_enabled for compatibility with transformers 5.x + torch 2.2.x
+_original_is_autocast_enabled = torch.is_autocast_enabled
+def _patched_is_autocast_enabled(device_type=None):
+    """Compatibility wrapper for torch.is_autocast_enabled that accepts device_type argument."""
+    try:
+        if device_type is not None:
+            return _original_is_autocast_enabled(device_type)
+        return _original_is_autocast_enabled()
+    except TypeError:
+        # Older torch doesn't accept device_type argument
+        return _original_is_autocast_enabled()
+
+torch.is_autocast_enabled = _patched_is_autocast_enabled
+
 try:
-    from transformers import AutoProcessor, AutoModelForVision2Seq
+    from transformers import Idefics3Processor, Idefics3ForConditionalGeneration
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
@@ -38,18 +52,38 @@ class SmolVLMAdapter(ModelAdapter):
         self._hooks = []
         self._layer_outputs = {}
         self.device = "cpu"  # Set in load()
+        self._include_llm = False  # Whether to include LLM layers
+        self._num_vision_layers = 0  # Set after loading
+        self._num_llm_layers = 0  # Set after loading
 
-    def load(self, compile_model: bool = False) -> None:
-        # Auto-detect device (GPU if available, else CPU)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+    def load(self, compile_model: bool = False, force_cpu: bool = False, include_llm: bool = False) -> None:
+        # Auto-detect device: CUDA > MPS (Apple Silicon) > CPU
+        if force_cpu:
+            self.device = "cpu"
+        elif torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
+        
+        self._include_llm = include_llm
         
         # Load processor and model
-        self.processor = AutoProcessor.from_pretrained(self.model_name)
-        self.model = AutoModelForVision2Seq.from_pretrained(
+        self.processor = Idefics3Processor.from_pretrained(self.model_name)
+        self.model = Idefics3ForConditionalGeneration.from_pretrained(
             self.model_name,
-            torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
+            torch_dtype=torch.float16 if self.device in ("cuda", "mps") else torch.float32,
         ).to(self.device)
         self.model.eval()
+        
+        # Count layers
+        vision_model = self.model.model.vision_model
+        self._num_vision_layers = 1 + len(vision_model.encoder.layers)  # embeddings + encoder
+        if include_llm:
+            self._num_llm_layers = len(self.model.model.text_model.layers)
+        else:
+            self._num_llm_layers = 0
 
         # Apply torch.compile for optimized inference
         if compile_model:
@@ -138,9 +172,9 @@ class SmolVLMAdapter(ModelAdapter):
             pixel_attention_mask = pixel_attention_mask.to(self.device)
         
         with torch.no_grad():
-            # Use AMP if enabled
-            device_type = "cuda" if self.device == "cuda" else "cpu"
-            with torch.amp.autocast(device_type, enabled=self._use_amp, dtype=torch.bfloat16):
+            # Use AMP if enabled (MPS doesn't support autocast well, skip it)
+            use_autocast = self._use_amp and self.device == "cuda"
+            with torch.amp.autocast("cuda", enabled=use_autocast, dtype=torch.float16):
                 # Extract image features using the model's vision encoder
                 image_outputs = self.model.get_image_features(
                     pixel_values=pixel_values,
@@ -179,16 +213,15 @@ class SmolVLMAdapter(ModelAdapter):
         For SmolVLM, this is:
         - 1 embedding layer (layer 0)
         - N encoder layers (layers 1 to N)
+        - Optionally: M LLM layers (if include_llm=True)
         
         Returns:
-            int: Total number of layers (embeddings + encoder layers)
+            int: Total number of layers
         """
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
         
-        vision_model = self.model.model.vision_model
-        num_encoder_layers = len(vision_model.encoder.layers)
-        return 1 + num_encoder_layers  # embeddings + encoder layers
+        return self._num_vision_layers + self._num_llm_layers
 
     def get_layer_info(self) -> Dict[int, str]:
         """
@@ -200,18 +233,38 @@ class SmolVLMAdapter(ModelAdapter):
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
         
-        vision_model = self.model.model.vision_model
-        num_encoder_layers = len(vision_model.encoder.layers)
+        layer_info = {0: "vision.embeddings"}
         
-        layer_info = {0: "embeddings"}
+        # Vision encoder layers
+        num_encoder_layers = self._num_vision_layers - 1
         for i in range(num_encoder_layers):
-            layer_info[i + 1] = f"encoder.layer.{i}"
+            layer_info[i + 1] = f"vision.encoder.{i}"
+        
+        # LLM layers (if included)
+        if self._include_llm:
+            for i in range(self._num_llm_layers):
+                layer_info[self._num_vision_layers + i] = f"llm.layer.{i}"
         
         return layer_info
+    
+    def get_layer_boundaries(self) -> Dict[str, tuple]:
+        """
+        Return the layer index boundaries for each component.
+        
+        Returns:
+            Dict with 'vision' and 'llm' keys, each containing (start, end) indices
+        """
+        boundaries = {
+            "vision": (0, self._num_vision_layers),
+        }
+        if self._include_llm:
+            boundaries["llm"] = (self._num_vision_layers, self._num_vision_layers + self._num_llm_layers)
+        return boundaries
 
     def _register_hooks(self) -> None:
         """
-        Register forward hooks on all vision encoder layers to capture intermediate activations.
+        Register forward hooks on all layers to capture intermediate activations.
+        Includes vision encoder layers and optionally LLM layers.
         """
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
@@ -232,14 +285,22 @@ class SmolVLMAdapter(ModelAdapter):
                     self._layer_outputs[layer_idx] = output.detach()
             return hook
         
-        # Register hook on embeddings layer (layer 0)
+        # Register hook on vision embeddings layer (layer 0)
         h = vision_model.embeddings.register_forward_hook(create_hook(0))
         self._hooks.append(h)
         
-        # Register hooks on encoder layers (layers 1 to N)
+        # Register hooks on vision encoder layers (layers 1 to N)
         for idx, layer in enumerate(vision_model.encoder.layers):
             h = layer.register_forward_hook(create_hook(idx + 1))
             self._hooks.append(h)
+        
+        # Register hooks on LLM layers if included
+        if self._include_llm:
+            text_model = self.model.model.text_model
+            for idx, layer in enumerate(text_model.layers):
+                layer_idx = self._num_vision_layers + idx
+                h = layer.register_forward_hook(create_hook(layer_idx))
+                self._hooks.append(h)
 
     def _remove_hooks(self) -> None:
         """Remove all registered forward hooks."""
@@ -255,10 +316,10 @@ class SmolVLMAdapter(ModelAdapter):
         pool_method: str = "mean"
     ) -> Dict[int, torch.Tensor]:
         """
-        Extract embeddings from ALL layers of the vision encoder.
+        Extract embeddings from ALL layers of the vision encoder (and optionally LLM).
         
         This method uses forward hooks to capture intermediate activations
-        from each layer of the vision transformer.
+        from each layer of the vision transformer and LLM.
         
         Args:
             batch: Dict from DataLoader containing preprocessed images
@@ -270,8 +331,8 @@ class SmolVLMAdapter(ModelAdapter):
         
         Returns:
             Dict[int, torch.Tensor]: Mapping of layer index to pooled embeddings
-                - Key 0: Embeddings layer output
-                - Keys 1 to N: Encoder layer outputs
+                - Keys 0 to N-1: Vision encoder layer outputs
+                - Keys N to N+M-1: LLM layer outputs (if include_llm=True)
                 - Each tensor has shape (batch_size, hidden_dim)
         """
         # Register hooks before forward pass
@@ -285,13 +346,33 @@ class SmolVLMAdapter(ModelAdapter):
                 pixel_attention_mask = pixel_attention_mask.to(self.device)
             
             with torch.no_grad():
-                device_type = "cuda" if self.device == "cuda" else "cpu"
-                with torch.amp.autocast(device_type, enabled=self._use_amp, dtype=torch.bfloat16):
-                    # Forward pass - hooks will capture layer outputs
-                    _ = self.model.get_image_features(
+                if self._include_llm:
+                    # Full forward pass with dummy text to get LLM activations
+                    # No autocast - causes issues with torch/transformers version mismatch
+                    batch_size = pixel_values.shape[0] if pixel_values.dim() > 3 else 1
+                    # Use a simple prompt that triggers image processing
+                    dummy_text = "<image>Describe this image."
+                    text_inputs = self.processor.tokenizer(
+                        [dummy_text] * batch_size,
+                        return_tensors="pt",
+                        padding=True,
+                    ).to(self.device)
+                    
+                    # Full forward pass (no autocast to avoid torch version issues)
+                    _ = self.model(
                         pixel_values=pixel_values,
-                        pixel_attention_mask=pixel_attention_mask
+                        pixel_attention_mask=pixel_attention_mask,
+                        input_ids=text_inputs["input_ids"],
+                        attention_mask=text_inputs["attention_mask"],
                     )
+                else:
+                    # Vision-only forward pass with optional autocast
+                    use_autocast = self._use_amp and self.device == "cuda"
+                    with torch.amp.autocast("cuda", enabled=use_autocast, dtype=torch.float16):
+                        _ = self.model.get_image_features(
+                            pixel_values=pixel_values,
+                            pixel_attention_mask=pixel_attention_mask
+                        )
             
             # Process captured layer outputs
             # SmolVLM processes images in patches: shape (num_patches, seq_len, hidden_dim)

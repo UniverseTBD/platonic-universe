@@ -18,10 +18,38 @@ import polars as pl
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from pu.models import get_adapter
 from pu.pu_datasets import get_dataset_adapter
 from pu.metrics import mknn, cka, compare, METRICS_REGISTRY
+
+
+# ============================================================
+# Plotting aesthetics
+# ============================================================
+COLOR = "black"
+plt.rcParams.update(
+    {
+        "figure.dpi": 100,
+        "figure.figsize": (14, 9),
+        "font.family": "serif",
+        "mathtext.fontset": "cm",
+        "axes.grid": True,
+        "legend.fontsize": 14,
+        "legend.title_fontsize": 18,
+        "axes.titlesize": 18,
+        "axes.labelsize": 16,
+        "ytick.labelsize": 12,
+        "xtick.labelsize": 12,
+        "text.color": COLOR,
+        "axes.labelcolor": COLOR,
+        "xtick.color": COLOR,
+        "ytick.color": COLOR,
+        "grid.color": COLOR,
+    }
+)
+plt.rcParams["text.latex.preamble"] = r"\usepackage[version=3]{mhchem}"
 
 
 @dataclass
@@ -88,6 +116,12 @@ def _collect_layer_embeddings(
                 layer_embeddings[layer_idx].append(emb)
             
             n_collected += emb.shape[0] if emb.ndim > 1 else 1
+            
+            # Clear GPU/MPS memory after each batch to prevent OOM
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
             
             if max_samples is not None and n_collected >= max_samples:
                 break
@@ -158,6 +192,250 @@ def get_diagonal_scores(alignment_matrix: np.ndarray) -> List[float]:
     return [float(alignment_matrix[i, i]) for i in range(min_dim)]
 
 
+# ============================================================
+# Visualization functions
+# ============================================================
+
+def plot_alignment_heatmap(
+    alignment_matrix: np.ndarray,
+    metric_name: str,
+    model_a_label: str,
+    model_b_label: str,
+    output_path: Optional[str] = None,
+    ax: Optional[plt.Axes] = None,
+    cmap: str = "viridis",
+    show_optimal: bool = True,
+) -> plt.Figure:
+    """
+    Plot a heatmap of the alignment matrix between two models.
+    
+    Args:
+        alignment_matrix: (num_layers_a, num_layers_b) alignment scores
+        metric_name: Name of the metric for the title
+        model_a_label: Label for model A (y-axis)
+        model_b_label: Label for model B (x-axis)
+        output_path: If provided, save figure to this path
+        ax: Matplotlib axes to plot on (creates new figure if None)
+        cmap: Colormap to use
+        show_optimal: If True, mark the optimal pair with a star
+    
+    Returns:
+        matplotlib Figure object
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 8))
+    else:
+        fig = ax.get_figure()
+    
+    # Create heatmap
+    im = ax.imshow(alignment_matrix, cmap=cmap, aspect="auto", origin="lower")
+    
+    # Add colorbar
+    cbar = fig.colorbar(im, ax=ax, label="Alignment Score")
+    
+    # Mark optimal pair
+    if show_optimal:
+        layer_a, layer_b, score = find_optimal_pair(alignment_matrix)
+        ax.scatter(layer_b, layer_a, marker="*", s=300, c="red", edgecolors="white", linewidths=2, zorder=10)
+        ax.annotate(f"Max: {score:.3f}", (layer_b, layer_a), 
+                   xytext=(5, 5), textcoords="offset points", fontsize=10, color="red")
+    
+    # Labels
+    ax.set_xlabel(f"{model_b_label} Layer Index")
+    ax.set_ylabel(f"{model_a_label} Layer Index")
+    ax.set_title(f"Layer Alignment: {metric_name}")
+    
+    # Set ticks
+    ax.set_xticks(range(alignment_matrix.shape[1]))
+    ax.set_yticks(range(alignment_matrix.shape[0]))
+    
+    plt.tight_layout()
+    
+    if output_path:
+        fig.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="white")
+        print(f"  Saved heatmap: {output_path}")
+    
+    return fig
+
+
+def plot_diagonal_scores(
+    diagonal_scores: Dict[str, List[float]],
+    model_a_label: str,
+    model_b_label: str,
+    output_path: Optional[str] = None,
+    ax: Optional[plt.Axes] = None,
+) -> plt.Figure:
+    """
+    Plot diagonal scores (same layer index comparisons) across metrics.
+    
+    Diagonal scores show how well corresponding layers align between models.
+    High diagonal scores suggest that layer i in model A aligns well with 
+    layer i in model B, supporting the hypothesis that models develop 
+    similar representations at similar depths.
+    
+    Args:
+        diagonal_scores: Dict mapping metric name to list of diagonal scores
+        model_a_label: Label for model A
+        model_b_label: Label for model B
+        output_path: If provided, save figure to this path
+        ax: Matplotlib axes to plot on
+    
+    Returns:
+        matplotlib Figure object
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, 6))
+    else:
+        fig = ax.get_figure()
+    
+    # Plot each metric
+    markers = ["o", "s", "^", "D", "v", "<", ">", "p", "h", "*"]
+    colors = plt.cm.tab10.colors
+    
+    for idx, (metric_name, scores) in enumerate(diagonal_scores.items()):
+        layer_indices = list(range(len(scores)))
+        ax.plot(layer_indices, scores, 
+               marker=markers[idx % len(markers)], 
+               color=colors[idx % len(colors)],
+               label=metric_name, 
+               linewidth=2, 
+               markersize=8)
+    
+    ax.set_xlabel("Layer Index")
+    ax.set_ylabel("Alignment Score")
+    ax.set_title(f"Diagonal Alignment: {model_a_label} vs {model_b_label}\n(Layer i ↔ Layer i comparisons)")
+    ax.legend(loc="best", title="Metric")
+    ax.set_xticks(range(len(list(diagonal_scores.values())[0])))
+    
+    plt.tight_layout()
+    
+    if output_path:
+        fig.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="white")
+        print(f"  Saved diagonal plot: {output_path}")
+    
+    return fig
+
+
+def plot_all_alignment_matrices(
+    result: "LayerwiseResult",
+    output_dir: str,
+    cmap: str = "viridis",
+) -> List[plt.Figure]:
+    """
+    Generate heatmap plots for all alignment matrices in a LayerwiseResult.
+    
+    Args:
+        result: LayerwiseResult object with alignment matrices
+        output_dir: Directory to save plots
+        cmap: Colormap to use
+    
+    Returns:
+        List of matplotlib Figure objects
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    model_a_label = f"{result.model_a_alias}-{result.model_a_size}"
+    model_b_label = f"{result.model_b_alias}-{result.model_b_size}"
+    
+    figures = []
+    
+    print("\n[Plots] Generating alignment heatmaps...")
+    
+    for metric_name, matrix_list in result.alignment_matrices.items():
+        matrix = np.array(matrix_list)
+        
+        output_path = os.path.join(
+            output_dir,
+            f"heatmap_{result.mode}_{metric_name}_{model_a_label}_vs_{model_b_label}.png"
+        )
+        
+        fig = plot_alignment_heatmap(
+            matrix, metric_name, model_a_label, model_b_label,
+            output_path=output_path, cmap=cmap
+        )
+        figures.append(fig)
+        plt.close(fig)
+    
+    # Also plot diagonal scores
+    print("[Plots] Generating diagonal scores plot...")
+    diag_output_path = os.path.join(
+        output_dir,
+        f"diagonal_{result.mode}_{model_a_label}_vs_{model_b_label}.png"
+    )
+    
+    fig = plot_diagonal_scores(
+        result.diagonal_scores, model_a_label, model_b_label,
+        output_path=diag_output_path
+    )
+    figures.append(fig)
+    plt.close(fig)
+    
+    return figures
+
+
+def plot_mknn_k_sensitivity(
+    result: "LayerwiseResult",
+    output_dir: str,
+) -> plt.Figure:
+    """
+    Plot how MKNN scores vary with different k values.
+    
+    Shows the sensitivity of the alignment measure to the choice of k,
+    both for the optimal pair and along the diagonal.
+    
+    Args:
+        result: LayerwiseResult object
+        output_dir: Directory to save plot
+    
+    Returns:
+        matplotlib Figure object
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Extract MKNN results
+    mknn_metrics = {k: v for k, v in result.max_scores.items() if k.startswith("mknn_k")}
+    
+    if not mknn_metrics:
+        print("  No MKNN metrics found, skipping k-sensitivity plot")
+        return None
+    
+    # Parse k values and scores
+    k_values = []
+    max_scores = []
+    for metric_key in sorted(mknn_metrics.keys(), key=lambda x: int(x.replace("mknn_k", ""))):
+        k = int(metric_key.replace("mknn_k", ""))
+        k_values.append(k)
+        max_scores.append(mknn_metrics[metric_key])
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    ax.plot(k_values, max_scores, marker="o", linewidth=2, markersize=10, color="tab:blue")
+    
+    ax.set_xlabel("k (number of nearest neighbors)")
+    ax.set_ylabel("Maximum MKNN Score")
+    ax.set_title(f"MKNN Sensitivity to k\n{result.model_a_alias}-{result.model_a_size} vs {result.model_b_alias}-{result.model_b_size}")
+    
+    # Mark each point with its value
+    for k, score in zip(k_values, max_scores):
+        ax.annotate(f"{score:.3f}", (k, score), xytext=(0, 10), 
+                   textcoords="offset points", ha="center", fontsize=10)
+    
+    plt.tight_layout()
+    
+    model_a_label = f"{result.model_a_alias}-{result.model_a_size}"
+    model_b_label = f"{result.model_b_alias}-{result.model_b_size}"
+    output_path = os.path.join(
+        output_dir,
+        f"mknn_k_sensitivity_{result.mode}_{model_a_label}_vs_{model_b_label}.png"
+    )
+    
+    fig.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="white")
+    print(f"  Saved k-sensitivity plot: {output_path}")
+    plt.close(fig)
+    
+    return fig
+
+
 def run_layerwise_comparison(
     model_a_alias: str,
     model_a_size: str,
@@ -170,6 +448,9 @@ def run_layerwise_comparison(
     num_workers: int = 0,
     max_samples: Optional[int] = None,
     output_dir: str = "data/layerwise",
+    generate_plots: bool = True,
+    force_cpu: bool = False,
+    include_llm: bool = False,
 ) -> LayerwiseResult:
     """
     Run layer-by-layer comparison between two models.
@@ -200,7 +481,7 @@ def run_layerwise_comparison(
         metrics = ["mknn", "cka"]
     
     if mknn_k_values is None:
-        mknn_k_values = [5, 10, 20]
+        mknn_k_values = [3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 40]
     
     # Model configurations
     model_map = {
@@ -244,9 +525,11 @@ def run_layerwise_comparison(
     
     # Load Model A
     print(f"[1/5] Loading Model A: {model_a_alias}-{model_a_size}")
+    if force_cpu:
+        print("  -> Forcing CPU (slower but uses system RAM)")
     adapter_a_cls = get_adapter(model_a_alias)
     adapter_a = adapter_a_cls(model_a_name, model_a_size, alias=model_a_alias)
-    adapter_a.load()
+    adapter_a.load(force_cpu=force_cpu, include_llm=include_llm)
     
     if not adapter_a.supports_layerwise():
         raise ValueError(f"Model {model_a_alias} does not support layer-wise extraction")
@@ -258,7 +541,7 @@ def run_layerwise_comparison(
     print(f"\n[2/5] Loading Model B: {model_b_alias}-{model_b_size}")
     adapter_b_cls = get_adapter(model_b_alias)
     adapter_b = adapter_b_cls(model_b_name, model_b_size, alias=model_b_alias)
-    adapter_b.load()
+    adapter_b.load(force_cpu=force_cpu, include_llm=include_llm)
     
     if not adapter_b.supports_layerwise():
         raise ValueError(f"Model {model_b_alias} does not support layer-wise extraction")
@@ -362,6 +645,13 @@ def run_layerwise_comparison(
         print(f"  Max score: {score:.4f}")
     
     print(f"\nResults saved to: {output_file}")
+    
+    # Generate plots if requested
+    if generate_plots:
+        plots_dir = os.path.join(output_dir, "plots")
+        plot_all_alignment_matrices(result, plots_dir)
+        plot_mknn_k_sensitivity(result, plots_dir)
+    
     print(f"{'='*60}\n")
     
     return result
