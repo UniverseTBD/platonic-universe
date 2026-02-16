@@ -123,6 +123,15 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
                 "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
             ],
         ),
+        "clip": (
+            ["vit-b-32", "vit-b-16", "vit-l-14", "vit-l-14-336"],
+            [
+                "openai/clip-vit-base-patch32",
+                "openai/clip-vit-base-patch16",
+                "openai/clip-vit-large-patch14",
+                "openai/clip-vit-large-patch14-336",
+            ],
+        ),
     }
 
     try:

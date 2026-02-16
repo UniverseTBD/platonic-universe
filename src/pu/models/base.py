@@ -21,11 +21,13 @@ class ModelAdapter(ABC):
         self._use_amp = False
 
     @abstractmethod
-    def load(self, compile_model: bool = False) -> None:
+    def load(self, compile_model: bool = False, force_cpu: bool = False, **kwargs) -> None:
         """Load model and any required resources (to cuda if needed).
 
         Args:
             compile_model: If True, wrap model with torch.compile for optimization.
+            force_cpu: If True, force model to CPU even if GPU is available.
+            **kwargs: Additional adapter-specific arguments (e.g., include_llm for SmolVLM).
         """
         raise NotImplementedError
 

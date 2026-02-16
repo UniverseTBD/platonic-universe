@@ -126,8 +126,13 @@ def _collect_layer_embeddings_to_disk(
                 if isinstance(emb, torch.Tensor):
                     emb = emb.cpu().numpy()
                 layer_embeddings[layer_idx].append(emb)
-            
-            n_collected += emb.shape[0] if emb.ndim > 1 else 1
+
+            # Count samples from this batch
+            if batch_layer_embs:
+                sample_emb = next(iter(batch_layer_embs.values()))
+                if isinstance(sample_emb, torch.Tensor):
+                    sample_emb = sample_emb.cpu().numpy()
+                n_collected += sample_emb.shape[0] if sample_emb.ndim > 1 else 1
             
             # Clear GPU/MPS memory after each batch
             if torch.cuda.is_available():
@@ -210,8 +215,13 @@ def _collect_layer_embeddings(
                 if isinstance(emb, torch.Tensor):
                     emb = emb.cpu().numpy()
                 layer_embeddings[layer_idx].append(emb)
-            
-            n_collected += emb.shape[0] if emb.ndim > 1 else 1
+
+            # Count samples from this batch
+            if batch_layer_embs:
+                sample_emb = next(iter(batch_layer_embs.values()))
+                if isinstance(sample_emb, torch.Tensor):
+                    sample_emb = sample_emb.cpu().numpy()
+                n_collected += sample_emb.shape[0] if sample_emb.ndim > 1 else 1
             
             # Clear GPU/MPS memory after each batch
             if torch.cuda.is_available():
@@ -574,17 +584,28 @@ def run_layerwise_comparison(
         LayerwiseResult with alignment matrices and analysis
     """
     if metrics is None:
-        metrics = ["mknn", "cka"]
-    
+        metrics = ["mknn", "cka", "rsa", "pwcca", "linear_r2"]
+
     if mknn_k_values is None:
         mknn_k_values = [3, 9, 12, 15, 18, 21, 30, 40]
-    
+
     # Model configurations
     model_map = {
         "smolvlm": {
             "256M": "HuggingFaceTB/SmolVLM-256M-Instruct",
             "500M": "HuggingFaceTB/SmolVLM-500M-Instruct",
             "2.2B": "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
+        },
+        "clip": {
+            "vit-b-32": "openai/clip-vit-base-patch32",
+            "vit-b-16": "openai/clip-vit-base-patch16",
+            "vit-l-14": "openai/clip-vit-large-patch14",
+            "vit-l-14-336": "openai/clip-vit-large-patch14-336",
+        },
+        "astropt": {
+            "015M": "Smith42/astroPT_v2.0",
+            "095M": "Smith42/astroPT_v2.0",
+            "850M": "Smith42/astroPT_v2.0",
         },
    #     "vit": {
    #         "base": "google/vit-base-patch16-224-in21k",
@@ -885,10 +906,10 @@ def run_size_convergence_study(
     """
     if sizes is None:
         sizes = ["256M", "500M", "2.2B"]
-    
+
     if metrics is None:
-        metrics = ["mknn", "cka"]
-    
+        metrics = ["mknn", "cka", "rsa", "pwcca", "linear_r2"]
+
     if mknn_k_values is None:
         mknn_k_values = [5, 10, 20]
     
