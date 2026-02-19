@@ -1,5 +1,6 @@
 import torch
-from transformers import AutoModel, AutoImageProcessor, AutoVideoProcessor, HieraModel
+from functools import partial
+from transformers import AutoModel, AutoImageProcessor, AutoVideoProcessor, HieraModel, CLIPProcessor, CLIPModel
 from typing import Any, Dict, Iterable
 from pu.models.base import ModelAdapter
 from pu.preprocess import PreprocessHF
@@ -29,13 +30,22 @@ class HFAdapter(ModelAdapter):
     def load(self, compile_model: bool = False) -> None:
         if self.alias == "vjepa":
             self.processor = AutoVideoProcessor.from_pretrained(self.model_name)
+        elif self.alias == "clip":
+            self.processor = partial(
+                    CLIPProcessor.from_pretrained(self.model_name),
+                    return_tensors="pt", 
+                    padding=True
+            )
         else:
             self.processor = AutoImageProcessor.from_pretrained(self.model_name)
 
         if self.alias == "hiera":
             self.model = HieraModel.from_pretrained(self.model_name).to("cuda").eval()
+        elif self.alias == "clip":
+            self.model = CLIPModel.from_pretrained(self.model_name).to("cuda").eval()
         else:
             self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
+
 
         # Apply torch.compile for optimized inference
         if compile_model:
@@ -73,6 +83,8 @@ class HFAdapter(ModelAdapter):
                     #  Hiera output is (B, 49, C).
                     # We pool over the sequence dimension (dim=1).
                     emb = outputs.mean(dim=1)
+                elif self.alias == "clip":
+                    emb = outputs.mean(dim=1)
                 else:
                     # Default fallback: mean over token dim excluding CLS if present
                     emb = outputs.mean(dim=1)
@@ -82,5 +94,7 @@ class HFAdapter(ModelAdapter):
         return emb
 
 # Register this adapter for the HF-style aliases used by the repo
-for alias in ("vit", "dino","dinov3", "convnext", "ijepa", "vjepa", "vit-mae","hiera"):
+for alias in (
+        "vit", "dino", "dinov3", "convnext", "ijepa", "vjepa", "vit-mae", "hiera", "clip"
+        ):
     register_adapter(alias, HFAdapter)
