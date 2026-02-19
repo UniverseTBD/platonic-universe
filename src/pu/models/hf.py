@@ -62,6 +62,9 @@ class HFAdapter(ModelAdapter):
         with torch.no_grad():
             # Use AMP if enabled for faster inference with lower memory
             with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
+                if self.alias == "clip":
+                    outputs = self.model.get_image_features(pixel_values=inputs)
+                    return outputs.float().detach()
                 outputs = self.model(inputs).last_hidden_state
                 if self.alias == "vit" or self.alias == "vit-mae":
                     emb = outputs[:, 1:].mean(dim=1)
@@ -78,8 +81,6 @@ class HFAdapter(ModelAdapter):
                 elif self.alias == "hiera":
                     #  Hiera output is (B, 49, C).
                     # We pool over the sequence dimension (dim=1).
-                    emb = outputs.mean(dim=1)
-                elif self.alias == "clip":
                     emb = outputs.mean(dim=1)
                 else:
                     # Default fallback: mean over token dim excluding CLS if present
