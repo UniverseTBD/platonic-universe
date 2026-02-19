@@ -31,11 +31,7 @@ class HFAdapter(ModelAdapter):
         if self.alias == "vjepa":
             self.processor = AutoVideoProcessor.from_pretrained(self.model_name)
         elif self.alias == "clip":
-            self.processor = partial(
-                    CLIPProcessor.from_pretrained(self.model_name),
-                    return_tensors="pt", 
-                    padding=True
-            )
+            self.processor = CLIPProcessor.from_pretrained(self.model_name)
         else:
             self.processor = AutoImageProcessor.from_pretrained(self.model_name)
 
@@ -58,7 +54,7 @@ class HFAdapter(ModelAdapter):
 
     def get_preprocessor(self, modes: Iterable[str]):
         # Return a callable compatible with datasets.Dataset.map
-        return PreprocessHF(modes, self.processor, resize=False)
+        return PreprocessHF(modes, self.processor, alias=self.alias, resize=False)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         # batch is a dict produced by the DataLoader; HF preprocess stores tensors under f"{mode}"
