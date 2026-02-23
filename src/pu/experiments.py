@@ -122,9 +122,9 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
     except KeyError:
         raise NotImplementedError(f"Model '{model_alias}' not implemented.")
 
-    df = pl.DataFrame()
     adapter_cls = get_adapter(model_alias)
     for size, model_name in zip(sizes, model_names):
+        size_df = pl.DataFrame()
         adapter = adapter_cls(model_name, size, alias=model_alias)
         adapter.load()
         processor = adapter.get_preprocessor(modes)
@@ -220,7 +220,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             with open(f"data/{comp_mode}_{model_alias}_scores.txt", "a") as fi:
                 fi.write(f"{model_alias} {size},mknn : {mknn_score:.8f}, cka : {cka_score:.8f}\n")
 
-        df = df.with_columns(
+        size_df = size_df.with_columns(
             [
                 pl.Series(
                     f"{model_alias}_{size.lstrip('0')}_{mode}".lower(),
@@ -230,7 +230,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ]
         )
 
-        df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
+        size_df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
 
         # if upload_ds is not None:
         #     Dataset.from_polars(df).push_to_hub(upload_ds)
