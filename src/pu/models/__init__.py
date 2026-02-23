@@ -7,7 +7,4 @@ from . import hf
 from . import astropt 
 from . import sam2
 from . import smolvlm 
-from . import paligemma
-from . import llava
-
 __all__ = ["get_adapter", "register_adapter", "list_adapters"]
