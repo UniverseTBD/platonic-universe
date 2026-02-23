@@ -34,6 +34,9 @@ from pu.metrics.neighbors import mknn, jaccard, rsa
 # Regression-based metrics
 from pu.metrics.regression import linear_r2, bidirectional_linear_r2
 
+# Calibration
+from pu.metrics.calibration import calibrate
+
 # I/O and batch comparison
 from pu.metrics.io import (
     list_metrics,
@@ -81,6 +84,8 @@ __all__ = [
     # Regression
     "linear_r2",
     "bidirectional_linear_r2",
+    # Calibration
+    "calibrate",
     # I/O
     "list_metrics",
     "compare",
