@@ -54,6 +54,13 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
                 "google/vit-huge-patch14-224-in21k",
             ],
         ),
+        "clip": (
+            ["base", "large"],
+            [
+                "openai/clip-vit-base-patch16",
+                "openai/clip-vit-large-patch14",
+            ],
+        ),
         "dino": (
             ["small", "base", "large", "giant"],
             [f"facebook/dinov2-with-registers-{s}" for s in ["small", "base", "large", "giant"]],
