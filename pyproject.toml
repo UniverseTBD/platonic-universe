@@ -19,6 +19,7 @@ dependencies = [
     "transformers>=4.55.0",
     "pybind11>=3.0.1",
     "pytest>=8.0.0",
+    "calibrated-similarity>=0.1.1",
 ]
 
 [project.optional-dependencies]

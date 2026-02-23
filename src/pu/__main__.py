@@ -24,6 +24,15 @@ def main():
     parser_comparisons.add_argument("--k", type=int, default=10, help="K value for neighbor-based metrics (mknn, jaccard).")
     parser_comparisons.add_argument("--size", type=str, default=None, help="Model size to compare (e.g., 'base', 'large', 'huge'). Use 'all' to process all sizes. Default: first size in file.")
 
+    # Subparser for calibrated comparisons
+    parser_calibrate = subparsers.add_parser("calibrate", help="Run calibrated similarity on existing embeddings.")
+    parser_calibrate.add_argument("parquet_file", help="Path to the Parquet file with embeddings.")
+    parser_calibrate.add_argument("--metrics", nargs="+", default=["cka"], help="Metrics to calibrate.")
+    parser_calibrate.add_argument("--k", type=int, default=10, help="K value for neighbor-based metrics (mknn, jaccard).")
+    parser_calibrate.add_argument("--size", type=str, default=None, help="Model size to compare. Default: first size in file.")
+    parser_calibrate.add_argument("--n-permutations", type=int, default=1000, help="Number of permutations for null distribution.")
+    parser_calibrate.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility.")
+
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
     parser_benchmark.add_argument("--model", required=True, help="Model to benchmark (e.g., 'vit', 'dino').")
@@ -81,6 +90,29 @@ def main():
             json.dump(results, f, indent=2, default=str)  # default=str handles numpy types
 
         # Print the results
+        print(json.dumps(results, indent=2, default=str))
+    elif args.command == "calibrate":
+        from functools import partial
+        from pu.metrics import calibrate, load_embeddings_from_parquet, METRICS_REGISTRY
+
+        Z1, Z2, metadata = load_embeddings_from_parquet(args.parquet_file, size=args.size)
+
+        results = {**metadata, "calibration": {}}
+        for name in args.metrics:
+            fn = METRICS_REGISTRY[name]
+            if name in ("mknn", "jaccard"):
+                fn = partial(fn, k=args.k)
+            results["calibration"][name] = calibrate(
+                Z1, Z2, fn,
+                n_permutations=args.n_permutations,
+                seed=args.seed,
+            )
+
+        output_file = f"data/{os.path.basename(args.parquet_file)}.calibrated.json"
+        os.makedirs("data", exist_ok=True)
+        with open(output_file, "w") as f:
+            json.dump(results, f, indent=2, default=str)
+
         print(json.dumps(results, indent=2, default=str))
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
