@@ -43,6 +43,7 @@ from pu.metrics.io import (
     compare,
     compare_from_parquet,
     load_embeddings_from_parquet,
+    load_single_embedding,
     get_available_sizes,
     METRICS_REGISTRY,
 )
@@ -91,6 +92,7 @@ __all__ = [
     "compare",
     "compare_from_parquet",
     "load_embeddings_from_parquet",
+    "load_single_embedding",
     "get_available_sizes",
     "METRICS_REGISTRY",
     # Base utilities

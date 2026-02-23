@@ -20,6 +20,8 @@ def main():
     # Subparser for running metrics comparisons
     parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
     parser_comparisons.add_argument("parquet_file", help="Path to the Parquet file with embeddings.")
+    parser_comparisons.add_argument("--ref", type=str, default=None, help="Path to a reference parquet file. Compares embeddings for --mode across the two files instead of comparing modes within one file.")
+    parser_comparisons.add_argument("--mode", type=str, default=None, help="Mode to compare when using --ref (e.g., 'hsc'). Default: first mode in file.")
     parser_comparisons.add_argument("--metrics", nargs="+", default=["all"], help="Metrics to run. Use 'all' for all metrics, or specify: cka, mmd, procrustes, cosine_similarity, frechet, svcca, pwcca, tucker_congruence, eigenspectrum, riemannian, kl_divergence, js_divergence, mutual_information, mknn, jaccard, rsa, linear_r2.")
     parser_comparisons.add_argument("--k", type=int, default=10, help="K value for neighbor-based metrics (mknn, jaccard).")
     parser_comparisons.add_argument("--size", type=str, default=None, help="Model size to compare (e.g., 'base', 'large', 'huge'). Use 'all' to process all sizes. Default: first size in file.")
@@ -27,6 +29,8 @@ def main():
     # Subparser for calibrated comparisons
     parser_calibrate = subparsers.add_parser("calibrate", help="Run calibrated similarity on existing embeddings.")
     parser_calibrate.add_argument("parquet_file", help="Path to the Parquet file with embeddings.")
+    parser_calibrate.add_argument("--ref", type=str, default=None, help="Path to a reference parquet file. Compares embeddings for --mode across the two files instead of comparing modes within one file.")
+    parser_calibrate.add_argument("--mode", type=str, default=None, help="Mode to compare when using --ref (e.g., 'hsc'). Default: first mode in file.")
     parser_calibrate.add_argument("--metrics", nargs="+", default=["cka"], help="Metrics to calibrate.")
     parser_calibrate.add_argument("--k", type=int, default=10, help="K value for neighbor-based metrics (mknn, jaccard).")
     parser_calibrate.add_argument("--size", type=str, default=None, help="Model size to compare. Default: first size in file.")
@@ -74,14 +78,26 @@ def main():
         )
     elif args.command == "compare":
         # Lazy import to avoid loading transformers/torchvision
-        from pu.metrics import compare_from_parquet
-        results = compare_from_parquet(
-            args.parquet_file,
-            metrics=args.metrics,
-            size=args.size,
-            mknn__k=args.k,
-            jaccard__k=args.k,
-        )
+        from pu.metrics import compare_from_parquet, compare, load_single_embedding
+
+        if args.ref:
+            Z1, meta1 = load_single_embedding(args.parquet_file, size=args.size, mode=args.mode)
+            Z2, meta2 = load_single_embedding(args.ref, mode=args.mode)
+            metric_results = compare(Z1, Z2, metrics=args.metrics, mknn__k=args.k, jaccard__k=args.k)
+            results = {
+                "model1": meta1["model"], "size1": meta1["size"],
+                "model2": meta2["model"], "size2": meta2["size"],
+                "mode": args.mode,
+                "metrics": metric_results,
+            }
+        else:
+            results = compare_from_parquet(
+                args.parquet_file,
+                metrics=args.metrics,
+                size=args.size,
+                mknn__k=args.k,
+                jaccard__k=args.k,
+            )
 
         # Save the results to a JSON file under data
         output_file = f"data/{os.path.basename(args.parquet_file)}.json"
@@ -93,9 +109,20 @@ def main():
         print(json.dumps(results, indent=2, default=str))
     elif args.command == "calibrate":
         from functools import partial
-        from pu.metrics import calibrate, load_embeddings_from_parquet, METRICS_REGISTRY
+        from pu.metrics import calibrate, load_embeddings_from_parquet, load_single_embedding, METRICS_REGISTRY
 
-        Z1, Z2, metadata = load_embeddings_from_parquet(args.parquet_file, size=args.size)
+        if args.ref:
+            if args.mode is None:
+                parser.error("--mode is required when using --ref")
+            Z1, meta1 = load_single_embedding(args.parquet_file, size=args.size, mode=args.mode)
+            Z2, meta2 = load_single_embedding(args.ref, mode=args.mode)
+            metadata = {
+                "model1": meta1["model"], "size1": meta1["size"],
+                "model2": meta2["model"], "size2": meta2["size"],
+                "mode": args.mode,
+            }
+        else:
+            Z1, Z2, metadata = load_embeddings_from_parquet(args.parquet_file, size=args.size)
 
         results = {**metadata, "calibration": {}}
         for name in args.metrics:

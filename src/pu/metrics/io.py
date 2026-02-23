@@ -213,6 +213,62 @@ def load_embeddings_from_parquet(
     return arr1, arr2, metadata
 
 
+def load_single_embedding(
+    parquet_file: str, size: str | None = None, mode: str | None = None
+) -> tuple[NDArray[np.floating], dict[str, str]]:
+    """
+    Load a single embedding column from a parquet file.
+
+    Args:
+        parquet_file: Path to parquet file
+        size: Size to use. If None, uses the last (largest) available size.
+        mode: Mode to load (e.g., "hsc", "jwst"). If None, uses the first mode.
+
+    Returns:
+        Tuple of (embeddings, metadata) where metadata contains model, size, mode.
+
+    Example:
+        >>> Z_vit, _ = load_single_embedding("data/jwst_vit_base.parquet", mode="hsc")
+        >>> Z_dino, _ = load_single_embedding("data/jwst_dino_base.parquet", mode="hsc")
+        >>> compare(Z_vit, Z_dino, metrics=["cka"])
+    """
+    df = pl.read_parquet(parquet_file)
+    columns = df.columns
+
+    example_col = columns[0]
+    parts = example_col.split("_")
+    if len(parts) < 3:
+        raise ValueError("Column names must be in the format <model>_<size>_<mode>")
+
+    model = parts[0]
+    # Use provided size or default to first column's size
+    if size is None:
+        size = parts[1]
+    else:
+        available_sizes = get_available_sizes(parquet_file)
+        if size not in available_sizes:
+            raise ValueError(f"Size '{size}' not found. Available sizes: {available_sizes}")
+
+    # Find available modes for this model/size
+    modes = [
+        col.split(f"{model}_{size}_")[1]
+        for col in columns
+        if col.startswith(f"{model}_{size}_")
+    ]
+
+    if mode is None:
+        mode = modes[0]
+    elif mode not in modes:
+        raise ValueError(f"Mode '{mode}' not found. Available: {modes}")
+
+    col_name = f"{model}_{size}_{mode}"
+    embs = df[col_name].to_numpy()
+    arr = np.vstack(list(embs))
+
+    metadata = {"model": model, "size": size, "mode": mode}
+    return arr, metadata
+
+
 def compare_from_parquet(
     parquet_file: str,
     metrics: list[str] | None = None,
