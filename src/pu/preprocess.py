@@ -152,7 +152,7 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
 
         if (("jwst" in modes) or ("desi" in modes) or ("sdss" in modes)) and resize:
             # if comparing hsc to jwst resize hsc so it matches jwst
-            if resize_mode = "fill":
+            if resize_mode == "fill":
                 arr = resize_galaxy_to_fit(
                     arr, target_size=96
                 )
@@ -207,7 +207,7 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
 
         if resize:
             # we always resize legacy to match hsc for our use-case
-            if resize_mode = "fill":
+            if resize_mode == "fill":
                 arr = resize_galaxy_to_fit(
                     arr, target_size=160
                 )
