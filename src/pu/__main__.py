@@ -39,6 +39,46 @@ def main():
     parser_calibrate.add_argument("--n-permutations", type=int, default=1000, help="Number of permutations for null distribution.")
     parser_calibrate.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility.")
 
+    # Subparser for physics validation tests
+    parser_physics = subparsers.add_parser(
+        "physics-test",
+        help="Test whether embeddings encode physical galaxy properties using Smith42/galaxies.",
+    )
+    parser_physics.add_argument(
+        "--model", required=True,
+        help="Model to test (e.g., 'vit', 'dino', 'convnext').",
+    )
+    parser_physics.add_argument(
+        "--split", default="test", choices=["test", "validation", "train"],
+        help="Dataset split to use (default: test).",
+    )
+    parser_physics.add_argument(
+        "--max-samples", type=int, default=5000,
+        help="Max galaxies to process (default: 5000). Use 0 for all.",
+    )
+    parser_physics.add_argument(
+        "--batch-size", type=int, default=128,
+        help="Batch size for inference.",
+    )
+    parser_physics.add_argument(
+        "--num-workers", type=int, default=0,
+        help="Number of data loader workers.",
+    )
+    parser_physics.add_argument(
+        "--knn-k", type=int, default=10,
+        help="K for neighbour consistency metric.",
+    )
+    parser_physics.add_argument(
+        "--cv", type=int, default=5,
+        help="Cross-validation folds for linear probe.",
+    )
+    parser_physics.add_argument(
+        "--properties", nargs="+", default=None,
+        help="Physical properties to test (default: standard set). "
+             "Options: stellar_mass, u_minus_r, redshift, sersic_n, "
+             "smooth_fraction, spiral_arms, sfr, etc.",
+    )
+
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
     parser_benchmark.add_argument("--model", required=True, help="Model to benchmark (e.g., 'vit', 'dino').")
@@ -145,6 +185,35 @@ def main():
             json.dump(results, f, indent=2, default=str)
 
         print(json.dumps(results, indent=2, default=str))
+    elif args.command == "physics-test":
+        from pu.physics_experiment import run_physics_experiment
+
+        max_samples = args.max_samples if args.max_samples != 0 else None
+
+        results = run_physics_experiment(
+            model_alias=args.model,
+            split=args.split,
+            max_samples=max_samples,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            knn_k=args.knn_k,
+            cv=args.cv,
+            properties=args.properties,
+        )
+
+        # Print summary across sizes
+        print(f"\n{'='*70}")
+        print(f"PHYSICS TEST SUMMARY: {args.model}")
+        print(f"{'='*70}")
+        for size, size_data in results["sizes"].items():
+            print(f"\n  {args.model}-{size} ({size_data['n_samples']} samples, "
+                  f"dim={size_data['embedding_dim']})")
+            for prop, metrics in size_data["properties"].items():
+                lr2 = metrics.get("linear_probe_r2")
+                lr2_str = f"{lr2:.4f}" if lr2 is not None else "N/A"
+                print(f"    {prop:<25} linear_probe_r2={lr2_str}")
+        print(f"{'='*70}")
+
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
 
