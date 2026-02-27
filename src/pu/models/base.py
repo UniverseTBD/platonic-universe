@@ -32,7 +32,7 @@ class ModelAdapter(ABC):
         self._use_amp = enabled
 
     @abstractmethod
-    def get_preprocessor(self, modes: Iterable[str]):
+    def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "fill"):
         """
         Return a callable that can be passed to `datasets.Dataset.map`.
         Should accept a single example dict and return a dict of tensors/arrays.

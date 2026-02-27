@@ -15,7 +15,7 @@ from pu.metrics import mknn, compare, compute_cka_mmap
 #from astroclip.models.specformer import SpecFormer
 from pu.utils import write_bin
 
-def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, all_metrics=False):
+def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=False, resize_mode="fill", all_metrics=False):
     """Runs the embedding generation experiment based on the provided arguments.
 
     Args:
@@ -25,9 +25,10 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         batch_size: Batch size for processing
         num_workers: Number of data loader workers
         knn_k: K value for MKNN calculation
+        resize: If True, enable galaxy resizing
+        resize_mode: 'match' to align to compared survey framing, 'fill' for adaptive per-galaxy cropping
         all_metrics: If True, compute all available metrics instead of just MKNN and CKA
     """
-    """Runs the embedding generation experiment based on the provided arguments."""
 
     comp_mode = mode
     modes = ["hsc", comp_mode]
@@ -117,7 +118,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         size_df = pl.DataFrame()
         adapter = adapter_cls(model_name, size, alias=model_alias)
         adapter.load()
-        processor = adapter.get_preprocessor(modes)
+        processor = adapter.get_preprocessor(modes, resize=resize, resize_mode=resize_mode)
 
         # Use dataset adapter to prepare the dataset (centralises dataset-specific logic)
         dataset_adapter_cls = get_dataset_adapter(comp_mode)

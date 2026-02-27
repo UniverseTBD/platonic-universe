@@ -44,9 +44,9 @@ class SAM2Adapter(ModelAdapter):
         if compile_model:
             self.model = torch.compile(self.model, mode="reduce-overhead", fullgraph=False)
 
-    def get_preprocessor(self, modes: Iterable[str]):
+    def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "fill"):
         # Return a callable compatible with datasets.Dataset.map
-        return PreprocessSAM2(modes, self.predictor._transforms, resize=False)
+        return PreprocessSAM2(modes, self.predictor._transforms, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         """
