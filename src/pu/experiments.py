@@ -1,3 +1,4 @@
+import json
 import os
 import numpy as np
 import polars as pl
@@ -10,18 +11,28 @@ import tempfile
 
 from pu.models import get_adapter
 from pu.pu_datasets import get_dataset_adapter
-from pu.metrics import mknn, compute_cka_mmap
+from pu.metrics import mknn, compare, compute_cka_mmap
 #from astroclip.models.specformer import SpecFormer
 from pu.utils import write_bin
 
-def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10):
+def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, all_metrics=False):
+    """Runs the embedding generation experiment based on the provided arguments.
+
+    Args:
+        model_alias: Model to run (e.g., 'vit', 'dino')
+        mode: Dataset mode (e.g., 'jwst', 'legacysurvey')
+        output_dataset: Optional HuggingFace dataset to upload to
+        batch_size: Batch size for processing
+        num_workers: Number of data loader workers
+        knn_k: K value for MKNN calculation
+        all_metrics: If True, compute all available metrics instead of just MKNN and CKA
+    """
     """Runs the embedding generation experiment based on the provided arguments."""
 
     comp_mode = mode
     modes = ["hsc", comp_mode]
     hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
     upload_ds = output_dataset
-    batch_size = batch_size
 
     def filterfun(idx):
         if "jwst" != comp_mode:
@@ -48,11 +59,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             [f"facebook/dinov2-with-registers-{s}" for s in ["small", "base", "large", "giant"]],
         ),
         "dinov3":(
-            [
-                "vits16", "vits16plus", "vitb16", "vitl16", "vith16plus", "vit7b16",
-                "convnext-base", "convnext-large", "convnext-small", "convnext-tiny",
-                "vitl16-sat493m", "vit7b16-sat493m",
-            ],
+            ["vits16", "vits16plus", "vitb16", "vitl16", "vith16plus", "vit7b16"],
             [
                 "facebook/dinov3-vits16-pretrain-lvd1689m",
                 "facebook/dinov3-vits16plus-pretrain-lvd1689m",
@@ -60,12 +67,6 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
                 "facebook/dinov3-vitl16-pretrain-lvd1689m",
                 "facebook/dinov3-vith16plus-pretrain-lvd1689m",
                 "facebook/dinov3-vit7b16-pretrain-lvd1689m",
-                "facebook/dinov3-convnext-base-pretrain-lvd1689m",
-                "facebook/dinov3-convnext-large-pretrain-lvd1689m",
-                "facebook/dinov3-convnext-small-pretrain-lvd1689m",
-                "facebook/dinov3-convnext-tiny-pretrain-lvd1689m",
-                "facebook/dinov3-vitl16-pretrain-sat493m",
-                "facebook/dinov3-vit7b16-pretrain-sat493m",
             ],
         ),
         "convnext": (
@@ -111,9 +112,9 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
     except KeyError:
         raise NotImplementedError(f"Model '{model_alias}' not implemented.")
 
-    df = pl.DataFrame()
     adapter_cls = get_adapter(model_alias)
     for size, model_name in zip(sizes, model_names):
+        size_df = pl.DataFrame()
         adapter = adapter_cls(model_name, size, alias=model_alias)
         adapter.load()
         processor = adapter.get_preprocessor(modes)
@@ -142,34 +143,74 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
 
 
         zs = {mode: torch.cat(embs) for mode, embs in zs.items()}
-        mknn_score = mknn(
-            zs[modes[0]].cpu().numpy(), zs[modes[1]].cpu().numpy(), knn_k
-        )
+        Z1 = zs[modes[0]].cpu().numpy()
+        Z2 = zs[modes[1]].cpu().numpy()
 
         temp1 = tempfile.NamedTemporaryFile(delete=False)
         temp2 = tempfile.NamedTemporaryFile(delete=False)
         temp1.close(); temp2.close()
 
         # build kernels
-        k1 = zs[modes[0]].cpu().numpy() @ zs[modes[0]].cpu().numpy().T
-        k2 = zs[modes[1]].cpu().numpy() @ zs[modes[1]].cpu().numpy().T
+        k1 = Z1 @ Z1.T
+        k2 = Z2 @ Z2.T
 
         write_bin(k1, str(temp1.name))
         write_bin(k2, str(temp2.name))
 
         # use kernel dimensions (square)
-        cka_score = compute_cka_mmap(str(temp1.name), str(temp2.name), k1.shape[0], k1.shape[1])
+        cka_mmap_score = compute_cka_mmap(str(temp1.name), str(temp2.name), k1.shape[0], k1.shape[1])
 
-        print(f"\ncka {model_alias}, {size}: {cka_score:.8f}")
-        print(f"\nmknn {model_alias}, {size}: {mknn_score:.8f}")
+        if all_metrics:
+            # Use the compare() function to compute all metrics
+            print(f"\n[{model_alias} {size}] Computing all metrics...")
+            metrics_results = compare(
+                Z1, Z2,
+                metrics=["all"],
+                mknn__k=knn_k,
+                jaccard__k=knn_k,
+            )
 
-        # Create the directory if it doesn't exist
-        os.makedirs("data", exist_ok=True)  
-        # Creating the file to store mknn results
-        with open(f"data/{comp_mode}_{model_alias}_scores.txt", "a") as fi:
-            fi.write(f"{model_alias} {size},mknn : {mknn_score:.8f}, cka : {cka_score:.8f}\n")
+            # Add memory-mapped CKA to results
+            metrics_results["cka_mmap"] = cka_mmap_score
 
-        df = df.with_columns(
+            # Print all metrics
+            print(f"\n{'='*60}")
+            print(f"METRICS for {model_alias} {size}")
+            print(f"{'='*60}")
+            for metric_name, value in metrics_results.items():
+                if value is not None:
+                    print(f"  {metric_name:<25}: {value:.8f}")
+                else:
+                    print(f"  {metric_name:<25}: FAILED")
+            print(f"{'='*60}\n")
+
+            # Save detailed results
+            os.makedirs("data", exist_ok=True)
+            with open(f"data/{comp_mode}_{model_alias}_{size}_all_metrics.json", "w") as f:
+                json.dump({
+                    "model": model_alias,
+                    "size": size,
+                    "mode": comp_mode,
+                    "n_samples": len(Z1),
+                    "metrics": {k: float(v) if v is not None else None for k, v in metrics_results.items()}
+                }, f, indent=2)
+
+            mknn_score = metrics_results.get("mknn", 0.0)
+            cka_score = cka_mmap_score
+        else:
+            # Original behavior: just MKNN and CKA
+            mknn_score = mknn(Z1, Z2, knn_k)
+            cka_score = cka_mmap_score
+            print(f"\ncka {model_alias}, {size}: {cka_score:.8f}")
+            print(f"\nmknn {model_alias}, {size}: {mknn_score:.8f}")
+
+            # Create the directory if it doesn't exist
+            os.makedirs("data", exist_ok=True)  
+            # Creating the file to store mknn results
+            with open(f"data/{comp_mode}_{model_alias}_scores.txt", "a") as fi:
+                fi.write(f"{model_alias} {size},mknn : {mknn_score:.8f}, cka : {cka_score:.8f}\n")
+
+        size_df = size_df.with_columns(
             [
                 pl.Series(
                     f"{model_alias}_{size.lstrip('0')}_{mode}".lower(),
@@ -179,7 +220,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ]
         )
 
-        df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
+        size_df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
 
         # if upload_ds is not None:
         #     Dataset.from_polars(df).push_to_hub(upload_ds)
