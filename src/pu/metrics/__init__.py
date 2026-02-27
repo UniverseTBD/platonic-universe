@@ -49,18 +49,6 @@ from pu.metrics.physics import (
 # Calibration
 from pu.metrics.calibration import calibrate
 
-# Physics-informed validation metrics
-from pu.metrics.physics import (
-    linear_probe,
-    nonlinear_probe,
-    neighbor_property_consistency,
-    embedding_property_correlation,
-    run_physics_tests,
-    ALL_PROPERTIES,
-    DEFAULT_PROPERTIES,
-    PROPERTY_GROUPS,
-)
-
 # I/O and batch comparison
 from pu.metrics.io import (
     list_metrics,

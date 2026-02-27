@@ -52,6 +52,10 @@ def run_experiment(*args, **kwargs):
     """
     return _get_run_experiment()(*args, **kwargs)
 
+def run_physics_experiment(*args, **kwargs):
+    from pu.physics_experiment import run_physics_experiment as _rpe
+    return _rpe(*args, **kwargs)
+
 # Import metrics submodule for pu.metrics.* access
 from pu import metrics
 
