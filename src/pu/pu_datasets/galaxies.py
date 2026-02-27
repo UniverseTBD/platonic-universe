@@ -101,10 +101,8 @@ class GalaxiesAdapter(DatasetAdapter):
 
         ds = (
             ds
-            .remove_columns(["image"])
             .filter(filterfun)
             .map(processor)
-            .remove_columns(["image_crop"])
         )
 
         return ds

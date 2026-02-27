@@ -94,12 +94,12 @@ PHYSICS_MODEL_MAP = {
 
 
 def _make_galaxies_preprocessor(adapter, model_alias):
-    """Build a preprocessor that works with Smith42/galaxies image_crop column.
+    """Build a preprocessor that works with Smith42/galaxies image column.
 
     For HF-based models we wrap the raw autoprocessor directly around the
-    PIL image_crop.  For astropt / sam2 we delegate to the adapter's own
+    PIL image.  For astropt / sam2 we delegate to the adapter's own
     get_preprocessor but remap the column name so the existing preprocessor
-    sees image_crop as if it were an HSC flux image.
+    sees image as if it were an HSC flux image.
 
     In all cases the resulting dataset column used for embedding is called
     ``"galaxies"`` so the inference loop can use ``adapter.embed_for_mode(B, "galaxies")``.
@@ -111,9 +111,9 @@ def _make_galaxies_preprocessor(adapter, model_alias):
         proc = adapter.processor
 
         def hf_wrapper(example):
-            img = example.get("image_crop")
+            img = example.get("image")
             if img is None:
-                raise KeyError("No 'image_crop' column — is the dataset revision v2.0?")
+                raise KeyError("No 'image' column")
 
             proc_out = proc(img, return_tensors="pt")
             if "pixel_values" in proc_out:
@@ -135,9 +135,9 @@ def _make_galaxies_preprocessor(adapter, model_alias):
         sam2_transforms = adapter.predictor._transforms
 
         def sam2_wrapper(example):
-            img = example.get("image_crop")
+            img = example.get("image")
             if img is None:
-                raise KeyError("No 'image_crop' column")
+                raise KeyError("No 'image' column")
             arr = np.asarray(img)
             if arr.ndim == 2:
                 arr = np.stack([arr, arr, arr], axis=-1)
@@ -165,9 +165,9 @@ def _make_galaxies_preprocessor(adapter, model_alias):
         )
 
         def astropt_wrapper(example):
-            img = example.get("image_crop")
+            img = example.get("image")
             if img is None:
-                raise KeyError("No 'image_crop' column")
+                raise KeyError("No 'image' column")
             arr = np.asarray(img, dtype=np.float32)
             if arr.ndim == 2:
                 arr = np.stack([arr, arr, arr], axis=-1)
@@ -244,7 +244,7 @@ def run_physics_experiment(
         adapter = adapter_cls(model_name, size, alias=model_alias)
         adapter.load()
 
-        # Build a preprocessor that maps image_crop -> model input
+        # Build a preprocessor that maps image -> model input
         proc_fn = _make_galaxies_preprocessor(adapter, model_alias)
 
         # --- Load dataset ---
