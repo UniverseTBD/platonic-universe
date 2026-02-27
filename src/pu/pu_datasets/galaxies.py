@@ -103,7 +103,16 @@ class GalaxiesAdapter(DatasetAdapter):
             ds
             .filter(filterfun)
             .map(processor)
+            .remove_columns(["image", "dr8_id", "galaxy_size", "file_name", "iauname"])
         )
+
+        def _sanitize_nones(example):
+            return {
+                k: float("nan") if v is None else v
+                for k, v in example.items()
+            }
+
+        ds = ds.map(_sanitize_nones)
 
         return ds
 
