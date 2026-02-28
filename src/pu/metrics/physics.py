@@ -17,7 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 from typing import Any
 
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import cross_val_score
 from sklearn.neighbors import NearestNeighbors
@@ -87,7 +87,6 @@ DEFAULT_PROPERTIES = [
 def linear_probe(
     Z: NDArray[np.floating],
     y: NDArray[np.floating],
-    alpha: float = 1.0,
     cv: int = 5,
 ) -> float:
     """
@@ -98,7 +97,6 @@ def linear_probe(
     Args:
         Z: (n_samples, d) embedding matrix
         y: (n_samples,) target physical property
-        alpha: Ridge regularisation strength
         cv: Number of cross-validation folds
 
     Returns:
@@ -107,12 +105,8 @@ def linear_probe(
     Z, y = _clean_inputs(Z, y)
     if len(Z) < cv:
         return float("nan")
-
-    scaler = StandardScaler()
-    Z_scaled = scaler.fit_transform(Z)
-
-    model = Ridge(alpha=alpha)
-    scores = cross_val_score(model, Z_scaled, y, cv=cv, scoring="r2")
+    model = LinearRegression()
+    scores = cross_val_score(model, Z, y, cv=cv, scoring="r2")
     return float(np.mean(scores))
 
 
