@@ -16,6 +16,8 @@ class HFAdapter(ModelAdapter):
       - 'ijepa' -> mean over token dim (last_hidden_state.mean(dim=1))
       - 'vjepa' -> mean over token dim (last_hidden_state.mean(dim=1))
       - 'vit-mae' -> CLS excluded mean over tokens (last_hidden_state[:,1:].mean)
+      - 'clip' -> 'image features': final, projected visual embs that have been
+            aligned with text (get_image_features(), shape [batch, embedding_dim])
 
     Supports:
       - torch.compile: Pass compile_model=True to load() for optimized inference
@@ -70,6 +72,8 @@ class HFAdapter(ModelAdapter):
                     emb = outputs[:, 1:].mean(dim=1)
                 elif self.alias == "convnext":
                     emb = outputs.mean(dim=(2, 3))
+                elif self.alias == "clip":
+                    emb = outputs.mean(dim=1)
                 elif self.alias == "dino":
                     emb = outputs[:, 0]
                 elif self.alias == "dinov3":
