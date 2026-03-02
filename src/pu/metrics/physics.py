@@ -299,10 +299,11 @@ def _clean_inputs(
     # Drop rows where y is NaN or Inf, or any Z feature is NaN/Inf
     valid = np.isfinite(y) & np.all(np.isfinite(Z), axis=1)
     # Drop outliers
-    lower, upper = np.percentile(y, [1, 99])
+    lower, upper = np.nanpercentile(y, [1, 99])
     inliers = (y >= lower) & (y <= upper)
-    Z = Z[valid & inliers]
-    y = y[valid & inliers]
+    mask = valid & inliers
+    Z = Z[mask]
+    y = y[mask]
 
     if len(Z) == 0:
         raise ValueError("No valid samples after removing NaN/Inf")
