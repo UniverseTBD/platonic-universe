@@ -9,6 +9,7 @@ This complements the cross-modal experiments (experiments.py) by testing
 whether embeddings encode real astrophysics, not just statistical structure.
 """
 
+import polars as pl
 import json
 import os
 from pathlib import Path
@@ -285,6 +286,18 @@ def run_physics_experiment(
         Z = torch.cat(embeddings).numpy()
         n_samples = len(Z)
         print(f"  Embedded {n_samples} galaxies, shape: {Z.shape}")
+
+        os.makedirs(output_dir, exist_ok=True)
+        emb_df = pl.Dataframe(
+            {
+                f"{model_alias}_{size}_galaxies": list(Z),
+            }
+        )
+        parquet_path = os.path.join(
+            output_dir, f"physics_{model_alias}_{size}_{split}.parquet"
+        )
+        emb_df.write_parquet(parquet_path)
+        print(f"  Embeddings saved to {parquet_path}")
 
         # --- Build property arrays ---
         prop_arrays: dict[str, np.ndarray] = {}
