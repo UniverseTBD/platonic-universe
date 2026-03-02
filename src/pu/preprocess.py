@@ -11,14 +11,10 @@ from pu.zoom import resize_galaxy_to_fit
 class PreprocessHF:
     """Preprocessor that converts galaxy images to the format expected by Dino and ViT models"""
 
-    def __init__(
-        self,
-        modes,
-        autoproc,
-        resize=False,
-    ):
+    def __init__(self, modes, autoproc, resize=False, alias=None):
         self.modes = modes
         self.autoproc = autoproc
+        self.alias = alias
         self.f2p = partial(flux_to_pil, resize=resize)
 
     def __call__(self, idx):
@@ -28,7 +24,10 @@ class PreprocessHF:
                 continue
             else:
                 im = self.f2p(idx[f"{mode}_image"], mode, self.modes)
-                proc_out = self.autoproc(im, return_tensors="pt")
+                if self.alias == "clip":
+                    proc_out = self.autoproc(images=im, return_tensors="pt")
+                else:
+                    proc_out = self.autoproc(im, return_tensors="pt")
                 if "pixel_values" in proc_out:
                     # first try for image models
                     result[f"{mode}"] = proc_out["pixel_values"].squeeze()
