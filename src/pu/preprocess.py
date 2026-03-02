@@ -17,9 +17,11 @@ class PreprocessHF:
         autoproc,
         resize=False,
         resize_mode="fill",
+        alias=None,
     ):
         self.modes = modes
         self.autoproc = autoproc
+        self.alias = alias
         self.f2p = partial(
             flux_to_pil, resize=resize, resize_mode=resize_mode
         )
@@ -31,7 +33,10 @@ class PreprocessHF:
                 continue
             else:
                 im = self.f2p(idx[f"{mode}_image"], mode, self.modes)
-                proc_out = self.autoproc(im, return_tensors="pt")
+                if self.alias == "clip":
+                    proc_out = self.autoproc(images=im, return_tensors="pt")
+                else:
+                    proc_out = self.autoproc(im, return_tensors="pt")
                 if "pixel_values" in proc_out:
                     # first try for image models
                     result[f"{mode}"] = proc_out["pixel_values"].squeeze()
