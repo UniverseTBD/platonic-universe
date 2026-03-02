@@ -49,8 +49,8 @@ PROPERTY_GROUPS: dict[str, dict[str, str]] = {
         "stellar_mass": "mass_med_photoz",
     },
     "star_formation": {
-        "sfr": "total_sfr_average",
-        "ssfr": "total_ssfr_average",
+        "sfr": "total_sfr_avg",
+        "ssfr": "total_ssfr_avg",
     },
 }
 
