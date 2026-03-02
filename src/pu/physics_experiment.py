@@ -190,7 +190,7 @@ def _make_galaxies_preprocessor(adapter, model_alias):
 def run_physics_experiment(
     model_alias: str,
     split: str = "test",
-    max_samples: int | None = 5000,
+    max_samples: int | None = None,
     batch_size: int = 128,
     num_workers: int = 0,
     knn_k: int = 10,

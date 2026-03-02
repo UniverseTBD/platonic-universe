@@ -53,8 +53,8 @@ def main():
         help="Dataset split to use (default: test).",
     )
     parser_physics.add_argument(
-        "--max-samples", type=int, default=5000,
-        help="Max galaxies to process (default: 5000). Use 0 for all.",
+        "--max-samples", type=int, default=0,
+        help="Max galaxies to process (default: all). Use 0 for all.",
     )
     parser_physics.add_argument(
         "--batch-size", type=int, default=128,

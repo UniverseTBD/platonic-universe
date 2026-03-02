@@ -34,31 +34,23 @@ from scipy.stats import spearmanr
 PROPERTY_GROUPS: dict[str, dict[str, str]] = {
     "morphology": {
         "smooth_fraction": "smooth-or-featured_smooth_fraction",
-        "featured_fraction": "smooth-or-featured_featured-or-disk_fraction",
-        "spiral_arms": "has-spiral-arms_yes_fraction",
-        "bar_strong": "bar_strong_fraction",
-        "bulge_dominant": "bulge-size_dominant_fraction",
+        "disk_fraction": "smooth-or-featured_featured-or-disk_fraction",
+        "artifact": "smooth-or-featured_artifact_fraction",
         "edge_on": "disk-edge-on_yes_fraction",
-        "merging": "merging_merger_fraction",
+        "tight_spiral": "spiral-winding_tight_fraction",
     },
     "photometry": {
         "mag_r": "mag_r",
         "mag_g": "mag_g",
-        "u_minus_r": "u_minus_r",
-    },
-    "structure": {
-        "sersic_n": "sersic_n",
-        "petro_th50": "petro_th50",
-        "petro_th90": "petro_th90",
-        "elpetro_ba": "elpetro_ba",
     },
     "physical": {
-        "stellar_mass": "elpetro_mass_log",
-        "redshift": "redshift",
+        "photo_z": "photo_z",
+        "spec_z": "spec_z",
+        "stellar_mass": "mass_med_photoz",
     },
     "star_formation": {
-        "sfr": "total_sfr_median",
-        "ssfr": "total_ssfr_median",
+        "sfr": "total_sfr_average",
+        "ssfr": "total_ssfr_average",
     },
 }
 
@@ -68,14 +60,19 @@ for _group in PROPERTY_GROUPS.values():
     ALL_PROPERTIES.update(_group)
 
 # A sensible default subset for quick runs
+# same as in Sogol's tokenizer paper
 DEFAULT_PROPERTIES = [
-    "stellar_mass",
-    "u_minus_r",
-    "redshift",
-    "sersic_n",
-    "smooth_fraction",
-    "spiral_arms",
-    "sfr",
+        "smooth_fraction",
+        "disk_fraction",
+        "artifact",
+        "edge_on",
+        "tight_spiral",
+        "mag_r",
+        "mag_g",
+        "photo_z",
+        "spec_z",
+        "stellar_mass",
+        "sfr",
 ]
 
 
@@ -301,8 +298,11 @@ def _clean_inputs(
 
     # Drop rows where y is NaN or Inf, or any Z feature is NaN/Inf
     valid = np.isfinite(y) & np.all(np.isfinite(Z), axis=1)
-    Z = Z[valid]
-    y = y[valid]
+    # Drop outliers
+    lower, upper = np.percentile(y, [1, 99])
+    inliers = (y >= lower) & (y <= upper)
+    Z = Z[valid & inliers]
+    y = y[valid & inliers]
 
     if len(Z) == 0:
         raise ValueError("No valid samples after removing NaN/Inf")
