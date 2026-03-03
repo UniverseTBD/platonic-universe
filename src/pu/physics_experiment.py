@@ -123,7 +123,11 @@ def _make_galaxies_preprocessor(adapter, model_alias):
             if img is None:
                 raise KeyError("No 'image' column")
 
-            proc_out = proc(img, return_tensors="pt")
+            if adapter.alias == "clip":
+                proc_out = proc(images=img, return_tensors="pt")
+            else:
+                proc_out = proc(im, return_tensors="pt")
+
             if "pixel_values" in proc_out:
                 result = {"galaxies": proc_out["pixel_values"].squeeze()}
             elif "pixel_values_videos" in proc_out:
@@ -295,7 +299,7 @@ def run_physics_experiment(
         print(f"  Embedded {n_samples} galaxies, shape: {Z.shape}")
 
         os.makedirs(output_dir, exist_ok=True)
-        emb_df = pl.Dataframe(
+        emb_df = pl.DataFrame(
             {
                 f"{model_alias}_{size}_galaxies": list(Z),
             }
