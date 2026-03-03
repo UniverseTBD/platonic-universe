@@ -126,7 +126,7 @@ def _make_galaxies_preprocessor(adapter, model_alias):
             if adapter.alias == "clip":
                 proc_out = proc(images=img, return_tensors="pt")
             else:
-                proc_out = proc(im, return_tensors="pt")
+                proc_out = proc(img, return_tensors="pt")
 
             if "pixel_values" in proc_out:
                 result = {"galaxies": proc_out["pixel_values"].squeeze()}
