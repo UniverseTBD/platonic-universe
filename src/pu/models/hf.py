@@ -1,5 +1,7 @@
 import torch
 from transformers import (AutoModel, AutoImageProcessor, AutoVideoProcessor, HieraModel,AutoProcessor, AutoModelForImageTextToText,)
+from functools import partial
+from transformers import AutoModel, AutoImageProcessor, AutoVideoProcessor, HieraModel, CLIPProcessor, CLIPModel
 from typing import Any, Dict, Iterable
 from pu.models.base import ModelAdapter
 from pu.preprocess import PreprocessHF
@@ -15,6 +17,8 @@ class HFAdapter(ModelAdapter):
       - 'ijepa' -> mean over token dim (last_hidden_state.mean(dim=1))
       - 'vjepa' -> mean over token dim (last_hidden_state.mean(dim=1))
       - 'vit-mae' -> CLS excluded mean over tokens (last_hidden_state[:,1:].mean)
+      - 'clip' -> 'image features': final, projected visual embs that have been
+            aligned with text (get_image_features(), shape [batch, embedding_dim])
 
     Supports:
       - torch.compile: Pass compile_model=True to load() for optimized inference
@@ -29,13 +33,18 @@ class HFAdapter(ModelAdapter):
     def load(self, compile_model: bool = False) -> None:
         if self.alias == "vjepa":
             self.processor = AutoVideoProcessor.from_pretrained(self.model_name)
+        elif self.alias == "clip":
+            self.processor = CLIPProcessor.from_pretrained(self.model_name)
         else:
             self.processor = AutoImageProcessor.from_pretrained(self.model_name)
 
         if self.alias == "hiera":
             self.model = HieraModel.from_pretrained(self.model_name).to("cuda").eval()
+        elif self.alias == "clip":
+            self.model = CLIPModel.from_pretrained(self.model_name).to("cuda").eval()
         else:
             self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
+
 
         # Apply torch.compile for optimized inference
         if compile_model:
@@ -48,7 +57,7 @@ class HFAdapter(ModelAdapter):
 
     def get_preprocessor(self, modes: Iterable[str]):
         # Return a callable compatible with datasets.Dataset.map
-        return PreprocessHF(modes, self.processor, resize=False)
+        return PreprocessHF(modes, self.processor, alias=self.alias, resize=False)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         # batch is a dict produced by the DataLoader; HF preprocess stores tensors under f"{mode}"
@@ -56,11 +65,16 @@ class HFAdapter(ModelAdapter):
         with torch.no_grad():
             # Use AMP if enabled for faster inference with lower memory
             with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
+                if self.alias == "clip":
+                    outputs = self.model.get_image_features(pixel_values=inputs)
+                    return outputs.float().detach()
                 outputs = self.model(inputs).last_hidden_state
                 if self.alias == "vit" or self.alias == "vit-mae":
                     emb = outputs[:, 1:].mean(dim=1)
                 elif self.alias == "convnext":
                     emb = outputs.mean(dim=(2, 3))
+                elif self.alias == "clip":
+                    emb = outputs.mean(dim=1)
                 elif self.alias == "dino":
                     emb = outputs[:, 0]
                 elif self.alias == "dinov3":
@@ -167,7 +181,9 @@ class VLMAdapter(HFAdapter):
         return emb
 
 # Register this adapter for the HF-style aliases used by the repo
-for alias in ("vit", "dino","dinov3", "convnext", "ijepa", "vjepa", "vit-mae","hiera"):
+for alias in (
+        "vit", "dino", "dinov3", "convnext", "ijepa", "vjepa", "vit-mae", "hiera", "clip"
+        ):
     register_adapter(alias, HFAdapter)
 
 # VLM aliases — PaliGemma2 sizes
