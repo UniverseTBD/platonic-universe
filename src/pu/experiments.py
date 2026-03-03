@@ -15,7 +15,7 @@ from pu.metrics import mknn, compare, compute_cka_mmap
 #from astroclip.models.specformer import SpecFormer
 from pu.utils import write_bin
 
-def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=False, resize_mode="fill", all_metrics=False):
+def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=False, resize_mode="match", all_metrics=False):
     """Runs the embedding generation experiment based on the provided arguments.
 
     Args:
