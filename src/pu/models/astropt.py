@@ -23,9 +23,9 @@ class AstroptAdapter(ModelAdapter):
         if compile_model:
             self.model = torch.compile(self.model, mode="reduce-overhead", fullgraph=False)
 
-    def get_preprocessor(self, modes: Iterable[str]):
+    def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "fill"):
         # PreprocessAstropt needs the modality_registry from the loaded model
-        return PreprocessAstropt(self.model.modality_registry, modes, resize=False)
+        return PreprocessAstropt(self.model.modality_registry, modes, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         # Expects batch to contain f"{mode}_images" and f"{mode}_positions" as tensors

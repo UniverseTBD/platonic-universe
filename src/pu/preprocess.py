@@ -11,11 +11,13 @@ from pu.zoom import resize_galaxy_to_fit
 class PreprocessHF:
     """Preprocessor that converts galaxy images to the format expected by Dino and ViT models"""
 
-    def __init__(self, modes, autoproc, resize=False, alias=None):
+    def __init__(self, modes, autoproc, resize=False, resize_mode="match", alias=None):
         self.modes = modes
         self.autoproc = autoproc
         self.alias = alias
-        self.f2p = partial(flux_to_pil, resize=resize)
+        self.f2p = partial(
+            flux_to_pil, resize=resize, resize_mode=resize_mode
+        )
 
     def __call__(self, idx):
         result = {}
@@ -51,10 +53,13 @@ class PreprocessSAM2:
         modes,
         sam2_transforms,
         resize=False,
+        resize_mode="match",
     ):
         self.modes = modes
         self.sam2_transforms = sam2_transforms
-        self.f2p = partial(flux_to_pil, resize=resize)
+        self.f2p = partial(
+            flux_to_pil, resize=resize, resize_mode=resize_mode
+        )
 
     def __call__(self, idx):
         result = {}
@@ -88,6 +93,7 @@ class PreprocessAstropt:
         modality_registry,
         modes,
         resize=False,
+        resize_mode="match",
     ):
         self.galproc = GalaxyImageDataset(
             None,
@@ -96,7 +102,9 @@ class PreprocessAstropt:
             modality_registry=modality_registry,
         )
         self.modes = modes
-        self.f2p = partial(flux_to_pil, resize=resize)
+        self.f2p = partial(
+            flux_to_pil, resize=resize, resize_mode=resize_mode
+        )
 
     def __call__(self, idx):
         result = {}
@@ -114,7 +122,7 @@ class PreprocessAstropt:
         return result
 
 
-def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True):
+def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mode="match"):
     """
     Convert raw fluxes to PIL imagery
     """
@@ -142,9 +150,14 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True):
 
         if (("jwst" in modes) or ("desi" in modes) or ("sdss" in modes)) and resize:
             # if comparing hsc to jwst resize hsc so it matches jwst
-            arr = resize_galaxy_to_fit(
-                arr, force_extent=(68, 92, 68, 92), target_size=96
-            )
+            if resize_mode == "fill":
+                arr = resize_galaxy_to_fit(
+                    arr, target_size=96
+                )
+            else: # match
+                arr = resize_galaxy_to_fit(
+                    arr, force_extent=(68, 92, 68, 92), target_size=96
+                )
 
         if percentile_norm:
             norm_consts = {
@@ -192,9 +205,14 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True):
 
         if resize:
             # we always resize legacy to match hsc for our use-case
-            arr = resize_galaxy_to_fit(
-                arr, force_extent=(36, 124, 36, 124), target_size=160
-            )
+            if resize_mode == "fill":
+                arr = resize_galaxy_to_fit(
+                    arr, target_size=160
+                )
+            else: # match
+                arr = resize_galaxy_to_fit(
+                    arr, force_extent=(36, 124, 36, 124), target_size=160
+                )
 
         if percentile_norm:
             norm_consts = {

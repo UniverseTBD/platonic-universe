@@ -54,9 +54,8 @@ class HFAdapter(ModelAdapter):
             )
 
 
-    def get_preprocessor(self, modes: Iterable[str]):
-        # Return a callable compatible with datasets.Dataset.map
-        return PreprocessHF(modes, self.processor, alias=self.alias, resize=False)
+    def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "fill"):
+        return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         # batch is a dict produced by the DataLoader; HF preprocess stores tensors under f"{mode}"
