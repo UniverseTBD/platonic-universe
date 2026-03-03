@@ -15,6 +15,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -26,6 +29,7 @@ from pu.metrics.physics import (
     ALL_PROPERTIES,
     DEFAULT_PROPERTIES,
     run_physics_tests,
+    _clean_inputs,
 )
 
 
@@ -199,6 +203,137 @@ def _make_galaxies_preprocessor(adapter, model_alias):
     raise ValueError(f"Don't know how to build a galaxies preprocessor for '{model_alias}'")
 
 
+def _compute_2d_projection(
+    Z: np.ndarray,
+    method: str = "pca",
+    random_state: int = 42,
+) -> np.ndarray:
+    """Reduce embeddings to 2D for visualisation.
+
+    Args:
+        Z: (n_samples, d) embedding matrix
+        method: 'pca' or 'umap'
+        random_state: Seed for reproducibility
+
+    Returns:
+        (n_samples, 2) projected coordinates
+    """
+    if method == "umap":
+        try:
+            from umap import UMAP
+            reducer = UMAP(n_components=2, random_state=random_state)
+            return reducer.fit_transform(Z)
+        except ImportError:
+            print("  Warning: umap-learn not installed, falling back to PCA")
+            method = "pca"
+
+    if method == "pca":
+        # pca is bettterrr
+        from sklearn.decomposition import PCA
+        return PCA(n_components=2, random_state=random_state).fit_transform(Z)
+
+    raise ValueError(f"Unknown projection method: {method}")
+
+
+def plot_physics_embeddings(
+    Z: np.ndarray,
+    prop_arrays: dict[str, np.ndarray],
+    size_results: dict[str, dict[str, float]],
+    model_alias: str,
+    size: str,
+    output_dir: str,
+    split: str = "test",
+    method: str = "pca",
+    max_plot_samples: int = 10_000,
+) -> str:
+    """Generate a grid of 2-D scatter plots, one per physical property.
+
+    Each panel colours points by the property value and annotates the
+    linear-probe R², neighbour consistency and distance correlation.
+
+    Args:
+        Z: (n_samples, d) embedding matrix
+        prop_arrays: {property_key: (n_samples,) array}
+        size_results: output of run_physics_tests for this size
+        model_alias: e.g. 'vit'
+        size: e.g. 'base'
+        output_dir: directory to write the PNG into
+        split: dataset split name (for the filename)
+        method: 'pca' or 'umap'
+        max_plot_samples: subsample for speed / readability
+
+    Returns:
+        Path to the saved figure.
+    """
+    n_props = len(prop_arrays)
+    if n_props == 0:
+        return ""
+
+    # Subsample if needed
+    n = len(Z)
+    if n > max_plot_samples:
+        rng = np.random.RandomState(42)
+        idx = rng.choice(n, max_plot_samples, replace=False)
+        Z_sub = Z[idx]
+        prop_sub = {k: v[idx] for k, v in prop_arrays.items()}
+    else:
+        Z_sub = Z
+        prop_sub = prop_arrays
+
+    coords = _compute_2d_projection(Z_sub, method=method)
+
+    ncols = min(n_props, 4)
+    nrows = (n_props + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4.5 * nrows),
+                             squeeze=False)
+
+    method_label = method.upper()
+
+    for ax, (prop_key, y) in zip(axes.flat, prop_sub.items()):
+        try:
+            Z_clean, y_clean = _clean_inputs(coords, y)
+        except ValueError:
+            ax.set_title(f"{prop_key} (no valid data)", fontsize=10)
+            continue
+        sc = ax.scatter(
+            Z_clean[:, 0], Z_clean[:, 1],
+            c=y_clean, s=1, alpha=0.6, cmap="viridis", rasterized=True,
+        )
+        fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_xlabel(f"{method_label}1")
+        ax.set_ylabel(f"{method_label}2")
+        ax.set_title(prop_key, fontsize=10)
+
+        # Annotate metrics
+        metrics = size_results.get(prop_key, {})
+        lr2 = metrics.get("linear_probe_r2", float("nan"))
+        nc = metrics.get("neighbor_consistency", float("nan"))
+        dc = metrics.get("distance_correlation", float("nan"))
+        ax.text(
+            0.02, 0.98,
+            f"R²={lr2:.3f}\nNC={nc:.3f}\nρ={dc:.3f}",
+            transform=ax.transAxes, fontsize=7,
+            verticalalignment="top", fontfamily="monospace",
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
+        )
+
+    # Hide unused axes
+    for ax in axes.flat[n_props:]:
+        ax.set_visible(False)
+
+    fig.suptitle(f"{model_alias}-{size}  ({method_label} projection)", fontsize=13)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+
+    os.makedirs(output_dir, exist_ok=True)
+    fig_path = os.path.join(
+        output_dir, f"physics_{model_alias}_{size}_{split}_{method}.png"
+    )
+    fig.savefig(fig_path, dpi=150)
+    plt.close(fig)
+    print(f"  Plot saved to {fig_path}")
+    return fig_path
+
+
 def run_physics_experiment(
     model_alias: str,
     split: str = "test",
@@ -209,6 +344,7 @@ def run_physics_experiment(
     cv: int = 5,
     properties: list[str] | None = None,
     output_dir: str = "data",
+    projection: str = "pca",
 ) -> dict[str, Any]:
     """
     Run physics validation tests for a model against Smith42/galaxies.
@@ -223,6 +359,7 @@ def run_physics_experiment(
         cv: Cross-validation folds for linear probe
         properties: Which physical properties to test (None = defaults)
         output_dir: Directory for result JSON files
+        projection: Dimensionality reduction method for plots ('pca' or 'umap')
 
     Returns:
         Nested dict with results per model size and property
@@ -346,6 +483,17 @@ def run_physics_experiment(
                 for k, v in size_results.items()
             },
         }
+
+        # --- Generate visualisation
+        if prop_arrays:
+            plot_physics_embeddings(
+                Z, prop_arrays, size_results,
+                model_alias=model_alias,
+                size=size,
+                output_dir=output_dir,
+                split=split,
+                method=projection,
+            )
 
     # --- Save results ---
     os.makedirs(output_dir, exist_ok=True)

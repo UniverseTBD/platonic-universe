@@ -41,7 +41,7 @@ def main():
 
     # Subparser for physics validation tests
     parser_physics = subparsers.add_parser(
-        "physics-test",
+        "run-physics",
         help="Test whether embeddings encode physical galaxy properties using Smith42/galaxies.",
     )
     parser_physics.add_argument(
@@ -77,6 +77,10 @@ def main():
         help="Physical properties to test (default: standard set). "
              "Options: stellar_mass, u_minus_r, redshift, sersic_n, "
              "smooth_fraction, spiral_arms, sfr, etc.",
+    )
+    parser_physics.add_argument(
+        "--projection", default="pca", choices=["pca", "umap"],
+        help="Dimensionality reduction for visualisation (default: pca).",
     )
 
     # Subparser for benchmarking performance optimizations
@@ -185,7 +189,7 @@ def main():
             json.dump(results, f, indent=2, default=str)
 
         print(json.dumps(results, indent=2, default=str))
-    elif args.command == "physics-test":
+    elif args.command == "run-physics":
         from pu.physics_experiment import run_physics_experiment
 
         max_samples = args.max_samples if args.max_samples != 0 else None
@@ -199,6 +203,7 @@ def main():
             knn_k=args.knn_k,
             cv=args.cv,
             properties=args.properties,
+            projection=args.projection,
         )
 
         # Print summary across sizes

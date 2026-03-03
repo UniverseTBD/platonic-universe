@@ -40,8 +40,8 @@ PROPERTY_GROUPS: dict[str, dict[str, str]] = {
         "tight_spiral": "spiral-winding_tight_fraction",
     },
     "photometry": {
-        "mag_r": "mag_r",
-        "mag_g": "mag_g",
+        "mag_r_desi": "mag_r_desi",
+        "mag_g_desi": "mag_g_desi",
     },
     "physical": {
         "photo_z": "photo_z",
@@ -67,8 +67,8 @@ DEFAULT_PROPERTIES = [
         "artifact",
         "edge_on",
         "tight_spiral",
-        "mag_r",
-        "mag_g",
+        "mag_r_desi",
+        "mag_g_desi",
         "photo_z",
         "spec_z",
         "stellar_mass",
