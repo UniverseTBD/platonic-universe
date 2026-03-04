@@ -214,3 +214,5 @@ __marimo__/
 
 data/
 src/pu/documentations
+
+.DS_Store

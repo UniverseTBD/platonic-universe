@@ -11,6 +11,8 @@ of different models, enabling analysis of:
 
 import json
 import os
+import socket
+import time
 import tempfile
 import shutil
 from dataclasses import dataclass, field, asdict
@@ -86,63 +88,125 @@ class LayerwiseResult:
         return asdict(self)
 
 
+def _is_network_error(exc: BaseException) -> bool:
+    """Return True if the exception looks like a transient network/connection error."""
+    network_messages = [
+        "cannot send a request, as the client has been closed",
+        "connection reset by peer",
+        "network is unreachable",
+        "remote end closed connection",
+        "connection timed out",
+        "broken pipe",
+        "connection refused",
+        "temporary failure in name resolution",
+        "name or service not known",
+        "failed to establish a new connection",
+        "read timeout",
+    ]
+    msg = str(exc).lower()
+    if any(phrase in msg for phrase in network_messages):
+        return True
+    return isinstance(exc, (ConnectionError, TimeoutError, BrokenPipeError))
+
+
+def _wait_for_network(host: str = "8.8.8.8", port: int = 53,
+                      check_interval: int = 15, timeout: int = 5) -> None:
+    """Block until network connectivity is restored, polling every check_interval seconds."""
+    print("\n[!] Network connection lost. Waiting for connectivity to return...")
+    attempt = 0
+    while True:
+        try:
+            sock = socket.create_connection((host, port), timeout=timeout)
+            sock.close()
+            elapsed = attempt * check_interval
+            print(f"[+] Network restored (after ~{elapsed}s). Resuming...")
+            return
+        except OSError:
+            attempt += 1
+            print(f"    Still offline... retrying in {check_interval}s (attempt {attempt})")
+            time.sleep(check_interval)
+
+
 def _collect_layer_embeddings_to_disk(
     adapter,
-    dataloader,
+    dataset,
+    batch_size: int,
+    num_workers: int,
     mode: str,
     temp_dir: str,
     max_samples: Optional[int] = None,
 ) -> Tuple[Dict[int, str], int]:
     """
     Collect embeddings from all layers and save to disk as memory-mapped files.
-    
+
     This is memory-efficient: embeddings are written to disk incrementally
     and can be loaded on-demand for alignment computation.
-    
+
+    If a network error occurs mid-loop (e.g. WiFi drops), the function waits
+    for connectivity to return and then resumes from the last successfully
+    processed sample using dataset.skip().
+
     Args:
         adapter: Model adapter
-        dataloader: DataLoader for the dataset
+        dataset: HuggingFace IterableDataset
+        batch_size: DataLoader batch size
+        num_workers: DataLoader num_workers
         mode: Dataset mode (e.g., 'jwst')
         temp_dir: Directory to save temporary embedding files
         max_samples: Maximum samples to collect
-    
+
     Returns:
         Tuple of (dict mapping layer index to file path, number of samples)
     """
     if not adapter.supports_layerwise():
         raise ValueError(f"Adapter {adapter.alias} does not support layer-wise extraction")
-    
+
     num_layers = adapter.get_num_layers()
-    
-    # First pass: collect embeddings in memory (we need to know final shape)
+
+    # Collect embeddings in memory across (potentially multiple) attempts
     layer_embeddings = {i: [] for i in range(num_layers)}
     n_collected = 0
-    
-    with torch.no_grad():
-        for batch in tqdm(dataloader, desc=f"Extracting {mode} layers"):
-            batch_layer_embs = adapter.embed_all_layers_for_mode(batch, mode)
-            
-            for layer_idx, emb in batch_layer_embs.items():
-                if isinstance(emb, torch.Tensor):
-                    emb = emb.cpu().numpy()
-                layer_embeddings[layer_idx].append(emb)
 
-            # Count samples from this batch
-            if batch_layer_embs:
-                sample_emb = next(iter(batch_layer_embs.values()))
-                if isinstance(sample_emb, torch.Tensor):
-                    sample_emb = sample_emb.cpu().numpy()
-                n_collected += sample_emb.shape[0] if sample_emb.ndim > 1 else 1
-            
-            # Clear GPU/MPS memory after each batch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                torch.mps.empty_cache()
-            
-            if max_samples is not None and n_collected >= max_samples:
-                break
-    
+    while True:  # Retry loop: re-entered after a network error is resolved
+        try:
+            # On resume, skip the samples already collected in previous attempts
+            ds_from_here = dataset.skip(n_collected) if n_collected > 0 else dataset
+            dataloader = DataLoader(ds_from_here, batch_size=batch_size, num_workers=num_workers)
+
+            with torch.no_grad():
+                for batch in tqdm(dataloader, desc=f"Extracting {mode} layers"):
+                    batch_layer_embs = adapter.embed_all_layers_for_mode(batch, mode)
+
+                    for layer_idx, emb in batch_layer_embs.items():
+                        if isinstance(emb, torch.Tensor):
+                            emb = emb.cpu().numpy()
+                        layer_embeddings[layer_idx].append(emb)
+
+                    # Count samples from this batch
+                    if batch_layer_embs:
+                        sample_emb = next(iter(batch_layer_embs.values()))
+                        if isinstance(sample_emb, torch.Tensor):
+                            sample_emb = sample_emb.cpu().numpy()
+                        n_collected += sample_emb.shape[0] if sample_emb.ndim > 1 else 1
+
+                    # Clear GPU/MPS memory after each batch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
+
+                    if max_samples is not None and n_collected >= max_samples:
+                        break
+
+            break  # Completed successfully; exit the retry loop
+
+        except Exception as e:
+            if _is_network_error(e):
+                _wait_for_network()
+                print(f"    Resuming from sample {n_collected}...")
+            else:
+                raise
+
     # Save to disk as memory-mapped files
     file_paths = {}
     for layer_idx, emb_list in layer_embeddings.items():
@@ -150,20 +214,20 @@ def _collect_layer_embeddings_to_disk(
             stacked = np.vstack(emb_list)
             if max_samples is not None:
                 stacked = stacked[:max_samples]
-            
+
             # Save to disk
             filepath = os.path.join(temp_dir, f"layer_{layer_idx}.npy")
             np.save(filepath, stacked)
             file_paths[layer_idx] = filepath
-            
+
             # Clear from memory immediately
             del stacked
-    
+
     # Clear the in-memory lists
     del layer_embeddings
     import gc
     gc.collect()
-    
+
     return file_paths, min(n_collected, max_samples) if max_samples else n_collected
 
 
@@ -740,25 +804,23 @@ def run_layerwise_comparison(
     if max_samples is not None:
         ds = ds.take(max_samples)
         print(f"  -> Limited to {max_samples} samples")
-    
-    dl = DataLoader(ds, batch_size=batch_size, num_workers=num_workers)
-    
+
     # Create temporary directory for embeddings (memory-efficient disk storage)
     temp_dir = tempfile.mkdtemp(prefix="platonic_embeddings_")
     temp_dir_a = os.path.join(temp_dir, "model_a")
     temp_dir_b = os.path.join(temp_dir, "model_b")
     os.makedirs(temp_dir_a, exist_ok=True)
     os.makedirs(temp_dir_b, exist_ok=True)
-    
+
     try:
         # Extract embeddings from Model A and save to disk
         print("\n[4/5] Extracting embeddings from Model A (saving to disk)")
         file_paths_a, n_samples = _collect_layer_embeddings_to_disk(
-            adapter_a, dl, modes[0], temp_dir_a, max_samples
+            adapter_a, ds, batch_size, num_workers, modes[0], temp_dir_a, max_samples
         )
         print(f"  -> Collected {n_samples} samples, {len(file_paths_a)} layers")
         print(f"  -> Saved to: {temp_dir_a}")
-        
+
         # Unload Model A to free memory
         del adapter_a
         import gc
@@ -768,20 +830,19 @@ def run_layerwise_comparison(
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             torch.mps.empty_cache()
         print("  -> Model A unloaded to free memory")
-        
+
         # Need to reload dataset for Model B with its preprocessor
         print("\n[4b/5] Extracting embeddings from Model B (saving to disk)")
         processor_b = adapter_b.get_preprocessor(modes)
         dataset_adapter_b = dataset_adapter_cls(hf_ds, mode)
         dataset_adapter_b.load()
         ds_b = dataset_adapter_b.prepare(processor_b, modes, filterfun)
-        
+
         if max_samples is not None:
             ds_b = ds_b.take(max_samples)
-        
-        dl_b = DataLoader(ds_b, batch_size=batch_size, num_workers=num_workers)
+
         file_paths_b, _ = _collect_layer_embeddings_to_disk(
-            adapter_b, dl_b, modes[0], temp_dir_b, max_samples
+            adapter_b, ds_b, batch_size, num_workers, modes[0], temp_dir_b, max_samples
         )
         print(f"  -> Collected {len(file_paths_b)} layers")
         print(f"  -> Saved to: {temp_dir_b}")
