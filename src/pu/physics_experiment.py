@@ -452,6 +452,8 @@ def run_physics_experiment(
         for key in property_keys:
             if metadata_accum[key]:
                 arr = np.array(metadata_accum[key], dtype=np.float64)
+                if key in ("sfr", "ssfr"):
+                    arr[arr <= -99] = np.nan
                 # Only include if we have matching lengths and non-trivial data
                 if len(arr) == n_samples and np.any(np.isfinite(arr)):
                     prop_arrays[key] = arr
@@ -467,13 +469,14 @@ def run_physics_experiment(
         )
 
         # Print results
-        print(f"\n  {'Property':<25} {'Lin R²':<12} {'Neighbor':<12} {'Dist Corr':<12}")
+        print(f"\n  {'Property':<25} {'Lin R²':<12} {'±std':<10} {'Neighbor':<12} {'Dist Corr':<12}")
         print(f"  {'-'*60}")
         for prop_key, metrics in size_results.items():
             lr2 = metrics.get("linear_probe_r2", float("nan"))
+            lr2_std = metrics.get("linear_probe_r2_std", float("nan"))
             nc = metrics.get("neighbor_consistency", float("nan"))
             dc = metrics.get("distance_correlation", float("nan"))
-            print(f"  {prop_key:<25} {lr2:<12.4f} {nc:<12.4f} {dc:<12.4f}")
+            print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f} {nc:<12.4f} {dc:<12.4f}")
 
         all_results["sizes"][size] = {
             "n_samples": n_samples,

@@ -104,7 +104,11 @@ def linear_probe(
         return float("nan")
     model = LinearRegression()
     scores = cross_val_score(model, Z, y, cv=cv, scoring="r2")
-    return float(np.mean(scores))
+    return {
+        "mean": float(np.mean(scores)),
+        "std": float(np.std(scores)),
+        "folds": scores.tolist(),
+    }
 
 
 def nonlinear_probe(
@@ -145,7 +149,11 @@ def nonlinear_probe(
         random_state=42,
     )
     scores = cross_val_score(model, Z_scaled, y, cv=cv, scoring="r2")
-    return float(np.mean(scores))
+    return {
+        "mean": float(np.mean(scores)),
+        "std": float(np.std(scores)),
+        "folds": scores.tolist(),
+    }
 
 
 def neighbor_property_consistency(
@@ -268,9 +276,11 @@ def run_physics_tests(
             continue
 
         y = properties[key]
+        lp = linear_probe(Z, y, cv=cv)
 
         results[key] = {
-            "linear_probe_r2": linear_probe(Z, y, cv=cv),
+            "linear_probe_r2": lp["mean"],
+            "linear_probe_r2_std": lp["std"],
             "neighbor_consistency": neighbor_property_consistency(Z, y, k=k),
             "distance_correlation": embedding_property_correlation(Z, y),
         }
