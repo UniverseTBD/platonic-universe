@@ -309,9 +309,10 @@ def plot_physics_embeddings(
         lr2 = metrics.get("linear_probe_r2", float("nan"))
         nc = metrics.get("neighbor_consistency", float("nan"))
         dc = metrics.get("distance_correlation", float("nan"))
+        nso = metrics.get("neighbor_set_overlap", float("nan"))
         ax.text(
             0.02, 0.98,
-            f"R²={lr2:.3f}\nNC={nc:.3f}\nρ={dc:.3f}",
+            f"R²={lr2:.3f}\nNC={nc:.3f}\nρ={dc:.3f}\nNSO={nso:.3f}",
             transform=ax.transAxes, fontsize=7,
             verticalalignment="top", fontfamily="monospace",
             bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
@@ -476,14 +477,38 @@ def run_physics_experiment(
             lr2_std = metrics.get("linear_probe_r2_std", float("nan"))
             nc = metrics.get("neighbor_consistency", float("nan"))
             dc = metrics.get("distance_correlation", float("nan"))
+            nso = metrics.get("neighbor_set_overlap", float("nan"))
+            print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f} {nc:<12.4f} {dc:<12.4f} {nso:<12.4f}")
+
+            # Print joint retrieval result
+            joint = size_results.get("_joint", {})
+            joint_overlap = joint.get("joint_overlap", float("nan"))
+            joint_n_props = joint.get("n_properties", 0)
+            joint_n_samp = joint.get("n_samples", 0)
+            print(f"\n  Joint neighbor set overlap: {joint_overlap:.4f} "
+                  f"({joint_n_props} properties, {joint_n_samp} galaxies)")
+            
+            # Store results (convert _joint dict values for JSON serialisation)
+            size_props = {}
+            for k, v in size_results.items():
+                if k == "_joint":
+                    continue
+                size_props[k] = {
+                    mk: float(mv) if isinstance(mv, (int, float)) and np.isfinite(mv) else None
+                    for mk, mv in v.items()
+                }
+             
             print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f} {nc:<12.4f} {dc:<12.4f}")
 
         all_results["sizes"][size] = {
             "n_samples": n_samples,
             "embedding_dim": Z.shape[1],
-            "properties": {
-                k: {mk: float(mv) if np.isfinite(mv) else None for mk, mv in v.items()}
-                for k, v in size_results.items()
+            "properties": size_props,
+            "joint_retrieval": {
+                "joint_overlap": float(joint_overlap) if np.isfinite(joint_overlap) else None,
+                "n_properties": joint_n_props,
+                "n_samples": joint_n_samp,
+                "properties_used": joint.get("properties_used", []),
             },
         }
 

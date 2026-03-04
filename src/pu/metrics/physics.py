@@ -235,6 +235,173 @@ def embedding_property_correlation(
     return float(corr)
 
 
+def neighbor_set_overlap(
+    Z: NDArray[np.floating],
+    y: NDArray[np.floating],
+    k: int = 10,
+) -> float:
+    """
+    Neighbor set overlap between embedding space and a single physical property.
+
+    For each galaxy, find its k nearest neighbours in embedding space
+    (cosine distance) and its k nearest neighbours in property space
+    (absolute difference on the scalar property).  Return the mean
+    fraction of overlap.
+
+    This is analogous to MKNN but with one side being a physical
+    property rather than a second model's embeddings.  Unlike
+    ``neighbor_property_consistency`` (which measures neighbourhood
+    *spread*), this directly measures whether the embedding retrieves
+    the *same* neighbours that the property would — a true retrieval
+    metric.
+
+    Args:
+        Z: (n_samples, d) embedding matrix
+        y: (n_samples,) target physical property
+        k: Number of nearest neighbours
+
+    Returns:
+        Overlap fraction in [0, 1].  Higher is better.
+        1 = embedding and property spaces agree perfectly on neighbourhoods.
+    """
+    Z, y = _clean_inputs(Z, y)
+    n = len(Z)
+    if n < k + 1:
+        return float("nan")
+
+    k = min(k, n - 1)
+
+    # Neighbours in embedding space (cosine distance)
+    nn_emb = NearestNeighbors(n_neighbors=k, metric="cosine").fit(Z)
+    idx_emb = nn_emb.kneighbors(return_distance=False)
+
+    # Neighbours in property space (absolute difference on scalar)
+    y_col = y.reshape(-1, 1)
+    nn_prop = NearestNeighbors(n_neighbors=k, metric="euclidean").fit(y_col)
+    idx_prop = nn_prop.kneighbors(return_distance=False)
+
+    # Mean overlap fraction
+    overlaps = [
+        len(set(e).intersection(p)) / k
+        for e, p in zip(idx_emb, idx_prop)
+    ]
+
+    return float(np.mean(overlaps))
+
+
+def joint_neighbor_set_overlap(
+    Z: NDArray[np.floating],
+    properties: dict[str, NDArray[np.floating]],
+    property_keys: list[str] | None = None,
+    k: int = 10,
+) -> dict[str, float]:
+    """
+    Neighbor set overlap between embedding space and *joint* physical
+    property space.
+
+    Concatenates all requested physical properties into a single
+    standardised feature vector per galaxy, computes k nearest neighbours
+    in that joint property space, and measures the overlap with k nearest
+    neighbours in embedding space.
+
+    This is the headline retrieval metric: it asks whether the embedding's
+    neighbourhood structure reflects *overall* physical similarity, not
+    just one property at a time.
+
+    Galaxies with NaN/Inf in *any* included property are dropped so that
+    all properties share the same sample set.
+
+    Args:
+        Z: (n_samples, d) embedding matrix
+        properties: dict mapping short property keys to (n_samples,) arrays
+        property_keys: which properties to include in the joint space
+                       (default: all keys in ``properties``)
+        k: Number of nearest neighbours
+
+    Returns:
+        Dict with:
+            - ``"joint_overlap"``: the headline overlap fraction in [0, 1]
+            - ``"n_properties"``: how many properties were used
+            - ``"n_samples"``: how many galaxies survived NaN filtering
+            - ``"properties_used"``: list of property keys included
+    """
+    if property_keys is None:
+        property_keys = list(properties.keys())
+
+    # --- Build the joint property matrix, dropping NaN rows across all ---
+    Z = np.asarray(Z, dtype=np.float64)
+    n = Z.shape[0]
+
+    # Stack available property columns
+    available_keys: list[str] = []
+    cols: list[NDArray[np.floating]] = []
+    for key in property_keys:
+        if key not in properties:
+            continue
+        arr = np.asarray(properties[key], dtype=np.float64).ravel()
+        if len(arr) != n:
+            continue
+        available_keys.append(key)
+        cols.append(arr)
+
+    if len(cols) < 2:
+        # Need at least 2 properties for a meaningful joint space
+        return {
+            "joint_overlap": float("nan"),
+            "n_properties": len(cols),
+            "n_samples": 0,
+            "properties_used": available_keys,
+        }
+
+    Y = np.column_stack(cols)  # (n, n_properties)
+
+    # Drop rows where any property or any embedding dim is NaN/Inf
+    valid = (
+        np.all(np.isfinite(Y), axis=1)
+        & np.all(np.isfinite(Z), axis=1)
+    )
+    Z_clean = Z[valid]
+    Y_clean = Y[valid]
+    n_clean = len(Z_clean)
+
+    if n_clean < k + 1:
+        return {
+            "joint_overlap": float("nan"),
+            "n_properties": len(available_keys),
+            "n_samples": n_clean,
+            "properties_used": available_keys,
+        }
+
+    k_use = min(k, n_clean - 1)
+
+    # Standardise each property column to zero mean, unit variance
+    # so that no single property dominates the distance calculation
+    scaler = StandardScaler()
+    Y_scaled = scaler.fit_transform(Y_clean)
+
+    # Neighbours in embedding space (cosine distance)
+    nn_emb = NearestNeighbors(n_neighbors=k_use, metric="cosine").fit(Z_clean)
+    idx_emb = nn_emb.kneighbors(return_distance=False)
+
+    # Neighbours in joint property space (Euclidean on standardised properties)
+    nn_prop = NearestNeighbors(n_neighbors=k_use, metric="euclidean").fit(Y_scaled)
+    idx_prop = nn_prop.kneighbors(return_distance=False)
+
+    # Mean overlap fraction
+    overlaps = [
+        len(set(e).intersection(p)) / k_use
+        for e, p in zip(idx_emb, idx_prop)
+    ]
+
+    return {
+        "joint_overlap": float(np.mean(overlaps)),
+        "n_properties": len(available_keys),
+        "n_samples": n_clean,
+        "properties_used": available_keys,
+    }
+
+
+
 # ---------------------------------------------------------------------------
 # Batch runner
 # ---------------------------------------------------------------------------
@@ -260,11 +427,15 @@ def run_physics_tests(
 
     Returns:
         Nested dict: {property_key: {metric_name: value, ...}, ...}
+        Also includes a ``"_joint"`` key with the joint neighbor set overlap
+        across all tested properties.
 
     Example:
         >>> results = run_physics_tests(Z, {"stellar_mass": mass_arr, "redshift": z_arr})
         >>> results["stellar_mass"]["linear_probe_r2"]
         0.72
+        >>> results["_joint"]["joint_overlap"]
+        0.15
     """
     if property_keys is None:
         property_keys = [p for p in DEFAULT_PROPERTIES if p in properties]
@@ -283,7 +454,14 @@ def run_physics_tests(
             "linear_probe_r2_std": lp["std"],
             "neighbor_consistency": neighbor_property_consistency(Z, y, k=k),
             "distance_correlation": embedding_property_correlation(Z, y),
+            "neighbor_set_overlap": neighbor_set_overlap(Z, y, k=k),
         }
+
+    # Joint retrieval metric across all tested properties
+    tested_keys = [k for k in property_keys if k in results]
+    results["_joint"] = joint_neighbor_set_overlap(
+        Z, properties, property_keys=tested_keys, k=k,
+    )
 
     return results
 
