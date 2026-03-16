@@ -31,7 +31,12 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
     """
 
     comp_mode = mode
-    modes = ["hsc", comp_mode]
+    is_spectral_model = model_alias == "specformer"
+    if is_spectral_model:
+        # Spectral-only models process spectra directly; no HSC image pairing
+        modes = [comp_mode]
+    else:
+        modes = ["hsc", comp_mode]
     hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
     upload_ds = output_dataset
 
