@@ -140,7 +140,7 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
         return chan
 
     arr = np.asarray(blob["flux"], np.float32)
-    if mode == "hsc":
+    if mode == "hsc": #160x160 pixels in MMU dataset
         if arr.ndim == 3:
             arr = np.stack([arr[0], arr[1], arr[3]], axis=-1)  # grz
         elif arr.ndim == 2:
@@ -148,16 +148,14 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
         else:
             raise ValueError(f"Array shape {arr.shape} for {mode} not recognised")
 
-        if (("jwst" in modes) or ("desi" in modes) or ("sdss" in modes)) and resize:
-            # if comparing hsc to jwst resize hsc so it matches jwst
-            if resize_mode == "fill":
-                arr = resize_galaxy_to_fit(
-                    arr, target_size=96
-                )
-            else: # match
-                arr = resize_galaxy_to_fit(
-                    arr, force_extent=(68, 92, 68, 92), target_size=96
-                )
+        if resize_mode == "fill":
+            arr = resize_galaxy_to_fit(
+                arr, target_size=96
+            )
+        else: # match
+            arr = resize_galaxy_to_fit(
+                arr, force_extent=(68, 92, 68, 92), target_size=24
+            )
 
         if percentile_norm:
             norm_consts = {
@@ -173,7 +171,7 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
                 axis=-1,
             )
 
-    if mode == "jwst":  # 0.04 pixel per arcsec
+    if mode == "jwst":  # 0.04 pixel per arcsec, 96x96 pixels in MMU dataset
         if arr.ndim == 3:
             arr = np.stack([arr[0], arr[4], arr[6]], axis=-1)
         elif arr.ndim == 2:
@@ -207,11 +205,11 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
             # we always resize legacy to match hsc for our use-case
             if resize_mode == "fill":
                 arr = resize_galaxy_to_fit(
-                    arr, target_size=160
+                    arr, target_size=96
                 )
             else: # match
                 arr = resize_galaxy_to_fit(
-                    arr, force_extent=(36, 124, 36, 124), target_size=160
+                    arr, force_extent=(68, 92, 68, 92), target_size=24
                 )
 
         if percentile_norm:
