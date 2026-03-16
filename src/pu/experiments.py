@@ -12,7 +12,6 @@ import tempfile
 from pu.models import get_adapter
 from pu.pu_datasets import get_dataset_adapter
 from pu.metrics import mknn, compare, compute_cka_mmap
-#from astroclip.models.specformer import SpecFormer
 from pu.utils import write_bin, plot_sample_galaxies
 
 def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=True, resize_mode="match", all_metrics=False, max_samples=None, plot_samples=False):
