@@ -113,6 +113,10 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["tiny", "small", "base-plus", "large"],
             [f"facebook/hiera-{s}-224-hf" for s in ["tiny", "small", "base-plus", "large"]],
         ),
+        "specformer": (
+            ["43M"],
+            ["polymathic-ai/specformer"],
+        ),
     }
 
     try:
