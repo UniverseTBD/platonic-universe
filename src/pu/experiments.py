@@ -140,7 +140,9 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         processor = adapter.get_preprocessor(modes, resize=resize, resize_mode=resize_mode)
 
         # Use dataset adapter to prepare the dataset (centralises dataset-specific logic)
-        dataset_adapter_cls = get_dataset_adapter(comp_mode)
+        # Spectral models use the raw spectra adapter variant
+        ds_alias = f"{comp_mode}_spectra" if is_spectral_model else comp_mode
+        dataset_adapter_cls = get_dataset_adapter(ds_alias)
         dataset_adapter = dataset_adapter_cls(hf_ds, comp_mode)
         dataset_adapter.load()
         ds = dataset_adapter.prepare(processor, modes, filterfun)
