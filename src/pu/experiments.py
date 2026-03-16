@@ -156,7 +156,11 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         with torch.no_grad():
             for B in tqdm(dl):
                 for mode in modes:
-                    if mode == "sdss":
+                    if is_spectral_model:
+                        # Spectral models compute embeddings from raw spectra
+                        outputs = adapter.embed_for_mode(B, mode)
+                        zs[mode].append(outputs)
+                    elif mode == "sdss":
                         zs[mode].append(torch.tensor(np.array(B["embedding"])).T)
                     elif mode == "desi":
                         zs[mode].append(torch.tensor(np.array(B["embeddings"])).T)
