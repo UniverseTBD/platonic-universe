@@ -171,6 +171,25 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
 
 
         zs = {mode: torch.cat(embs) for mode, embs in zs.items()}
+
+        if is_spectral_model:
+            # Spectral-only model: save embeddings, skip metric computation
+            Z = zs[modes[0]].cpu().numpy()
+            print(f"\n[{model_alias} {size}] Generated {Z.shape[0]} embeddings (dim={Z.shape[1]})")
+
+            size_df = size_df.with_columns(
+                pl.Series(
+                    f"{model_alias}_{size.lstrip('0')}_{comp_mode}".lower(),
+                    Z,
+                )
+            )
+
+            os.makedirs("data", exist_ok=True)
+            size_df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
+            print(f"Saved to data/{comp_mode}_{model_alias}_{size}.parquet")
+            print("Use 'platonic_universe compare' to compare against image model embeddings.")
+            continue
+
         Z1 = zs[modes[0]].cpu().numpy()
         Z2 = zs[modes[1]].cpu().numpy()
 
