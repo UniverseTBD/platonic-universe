@@ -3,6 +3,8 @@ import os
 
 import numpy as np
 from datasets import load_dataset
+from tqdm import tqdm
+
 from pu.zoom import resize_galaxy_to_fit
 
 BAND_CONFIG = {
@@ -66,7 +68,7 @@ def compute_percentiles(max_samples=10000, resize_mode="match", output_path="dat
 
     pixels = {"hsc": [], "legacysurvey": []}
     n_ls = 0
-    for sample in ds:
+    for sample in tqdm(ds, total=max_samples, desc="HSC + Legacy Survey"):
         for mode in ("hsc", "legacysurvey"):
             arr = _process_image(sample[f"{mode}_image"], mode, resize_mode)
             pixels[mode].append(arr.reshape(-1, 3))
@@ -89,7 +91,7 @@ def compute_percentiles(max_samples=10000, resize_mode="match", output_path="dat
 
     jwst_pixels = []
     n_jwst = 0
-    for sample in ds:
+    for sample in tqdm(ds, total=max_samples, desc="JWST"):
         if n_jwst >= max_samples:
             break
         blob = sample["jwst_image"]
