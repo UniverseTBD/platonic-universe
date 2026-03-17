@@ -153,7 +153,7 @@ def _get_norm_consts(mode, band_names):
     }
 
 
-def flux_to_pil(blob, mode, modes, resize=True, norm_mode="arcsinh", resize_mode="match"):
+def flux_to_pil(blob, mode, modes, resize=True, norm_mode="arcsinh", resize_mode="match", stretch_alpha=20):
     """
     Convert raw fluxes to PIL imagery
 
@@ -166,17 +166,20 @@ def flux_to_pil(blob, mode, modes, resize=True, norm_mode="arcsinh", resize_mode
         if percentiles is not None:
             v0, v1 = percentiles
             if mode == "arcsinh":
-                softening = v1 - v0
-                stretched = np.arcsinh((chan - v0) / softening)
-                s_high = np.arcsinh(1.0)
+                t = (chan - v0) / (v1 - v0)
+                stretched = np.arcsinh(stretch_alpha * t)
+                s_high = np.arcsinh(stretch_alpha)
                 chan = (stretched / s_high).clip(0, 1)
             else:  # linear
                 chan = ((chan - v0) / (v1 - v0)).clip(0, 1)
         else:
             # per-image fallback
-            scale = np.percentile(chan, 99) - np.percentile(chan, 1)
-            chan = np.arcsinh((chan - np.percentile(chan, 1)) / scale)
-            chan = (chan - chan.min()) / (chan.max() - chan.min())
+            p1 = np.percentile(chan, 1)
+            p99 = np.percentile(chan, 99)
+            t = (chan - p1) / (p99 - p1)
+            stretched = np.arcsinh(stretch_alpha * t)
+            s_high = np.arcsinh(stretch_alpha)
+            chan = (stretched / s_high).clip(0, 1)
         return chan
 
     arr = np.asarray(blob["flux"], np.float32)
