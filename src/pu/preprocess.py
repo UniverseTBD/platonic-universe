@@ -1,3 +1,5 @@
+import json
+import os
 from functools import partial
 
 import numpy as np
@@ -6,6 +8,25 @@ from astropt.local_datasets import GalaxyImageDataset
 from torchvision import transforms
 
 from pu.zoom import resize_galaxy_to_fit
+
+# Default percentiles file path (relative to package root or cwd)
+_PERCENTILES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "percentiles.json")
+_percentiles_cache = None
+
+
+def _load_percentiles():
+    """Load percentiles from JSON file, with caching."""
+    global _percentiles_cache
+    if _percentiles_cache is not None:
+        return _percentiles_cache
+
+    path = os.environ.get("PU_PERCENTILES_PATH", _PERCENTILES_PATH)
+    path = os.path.normpath(path)
+    if os.path.exists(path):
+        with open(path) as f:
+            _percentiles_cache = json.load(f)
+        return _percentiles_cache
+    return None
 
 
 class PreprocessHF:
@@ -122,6 +143,20 @@ class PreprocessAstropt:
         return result
 
 
+def _get_norm_consts(mode, band_names):
+    """Load norm constants from percentiles.json."""
+    percentiles = _load_percentiles()
+    if percentiles is None:
+        raise FileNotFoundError(
+            f"Percentiles file not found. Run 'pu percentiles' first to generate it."
+        )
+    mode_data = percentiles[mode]
+    return {
+        band: (mode_data[band]["p1"], mode_data[band]["p99"])
+        for band in band_names
+    }
+
+
 def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mode="match"):
     """
     Convert raw fluxes to PIL imagery
@@ -159,11 +194,7 @@ def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mod
                 )
 
         if percentile_norm:
-            norm_consts = {
-                "g": (-0.01787552610039711, 0.35058236330747405),
-                "r": (-0.026543444022536278, 0.7422214198112442),
-                "z": (-0.057812731899321075, 1.508440258502958),
-            }
+            norm_consts = _get_norm_consts("hsc", ("g", "r", "z"))
             arr = np.stack(
                 [
                     _norm(arr[..., ii], norm_consts[band])
@@ -181,11 +212,7 @@ def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mod
             raise ValueError(f"Array shape {arr.shape} for {mode} not recognised")
 
         if percentile_norm:
-            norm_consts = {
-                "f090w": (-0.07078961282968521, 2.4474363327026367),
-                "f277w": (-0.017583513632416725, 5.846490383148193),
-                "f444w": (-0.0294732004404068, 4.091785907745361),
-            }
+            norm_consts = _get_norm_consts("jwst", ("f090w", "f277w", "f444w"))
             arr = np.stack(
                 [
                     _norm(arr[..., ii], norm_consts[band])
@@ -214,11 +241,7 @@ def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mod
                 )
 
         if percentile_norm:
-            norm_consts = {
-                "g": (-0.0023022370878607035, 0.009575212374329567),
-                "r": (-0.003597061627078801, 0.021863272413611412),
-                "z": (-0.009074461692944168, 0.042978320308029616),
-            }
+            norm_consts = _get_norm_consts("legacysurvey", ("g", "r", "z"))
             arr = np.stack(
                 [
                     _norm(arr[..., ii], norm_consts[band])

@@ -41,6 +41,12 @@ def main():
     parser_calibrate.add_argument("--n-permutations", type=int, default=1000, help="Number of permutations for null distribution.")
     parser_calibrate.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility.")
 
+    # Subparser for computing dataset percentiles
+    parser_percentiles = subparsers.add_parser("percentiles", help="Compute 1st/99th percentiles for dataset bands.")
+    parser_percentiles.add_argument("--max-samples", type=int, default=10000, help="Max galaxies per dataset (default: 10000).")
+    parser_percentiles.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy (default: match).")
+    parser_percentiles.add_argument("--output", type=str, default="data/percentiles.json", help="Output JSON path (default: data/percentiles.json).")
+
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
     parser_benchmark.add_argument("--model", required=True, help="Model to benchmark (e.g., 'vit', 'dino').")
@@ -149,6 +155,13 @@ def main():
             json.dump(results, f, indent=2, default=str)
 
         print(json.dumps(results, indent=2, default=str))
+    elif args.command == "percentiles":
+        from pu.percentiles import compute_percentiles
+        compute_percentiles(
+            max_samples=args.max_samples,
+            resize_mode=args.resize_mode,
+            output_path=args.output,
+        )
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
 
