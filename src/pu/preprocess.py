@@ -153,18 +153,27 @@ def _get_norm_consts(mode, band_names):
     }
 
 
-def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mode="match"):
+def flux_to_pil(blob, mode, modes, resize=True, norm_mode="arcsinh", resize_mode="match"):
     """
     Convert raw fluxes to PIL imagery
+
+    norm_mode: "arcsinh" (default) — arcsinh stretch with global percentile softening
+               "linear" — linear percentile clip (old default)
+               "per_image" — per-image arcsinh (no global percentiles)
     """
 
-    def _norm(chan, percentiles=None):
+    def _norm(chan, percentiles=None, mode="arcsinh"):
         if percentiles is not None:
-            # if percentiles are present norm by them
             v0, v1 = percentiles
-            chan = ((chan - v0) / (v1 - v0)).clip(0, 1)
+            if mode == "arcsinh":
+                softening = v1 - v0
+                stretched = np.arcsinh((chan - v0) / softening)
+                s_high = np.arcsinh(1.0)
+                chan = (stretched / s_high).clip(0, 1)
+            else:  # linear
+                chan = ((chan - v0) / (v1 - v0)).clip(0, 1)
         else:
-            # else assume we norm per image
+            # per-image fallback
             scale = np.percentile(chan, 99) - np.percentile(chan, 1)
             chan = np.arcsinh((chan - np.percentile(chan, 1)) / scale)
             chan = (chan - chan.min()) / (chan.max() - chan.min())
@@ -189,11 +198,11 @@ def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mod
                     arr, force_extent=(68, 92, 68, 92), target_size=96
                 )
 
-        if percentile_norm:
+        if norm_mode in ("arcsinh", "linear"):
             norm_consts = _get_norm_consts("hsc", ("g", "r", "z"))
             arr = np.stack(
                 [
-                    _norm(arr[..., ii], norm_consts[band])
+                    _norm(arr[..., ii], norm_consts[band], mode=norm_mode)
                     for ii, band in enumerate(("g", "r", "z"))
                 ],
                 axis=-1,
@@ -207,11 +216,11 @@ def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mod
         else:
             raise ValueError(f"Array shape {arr.shape} for {mode} not recognised")
 
-        if percentile_norm:
+        if norm_mode in ("arcsinh", "linear"):
             norm_consts = _get_norm_consts("jwst", ("f090w", "f277w", "f444w"))
             arr = np.stack(
                 [
-                    _norm(arr[..., ii], norm_consts[band])
+                    _norm(arr[..., ii], norm_consts[band], mode=norm_mode)
                     for ii, band in enumerate(("f090w", "f277w", "f444w"))
                 ],
                 axis=-1,
@@ -236,17 +245,17 @@ def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mod
                     arr, force_extent=(72, 88, 72, 88), target_size=96
                 )
 
-        if percentile_norm:
+        if norm_mode in ("arcsinh", "linear"):
             norm_consts = _get_norm_consts("legacysurvey", ("g", "r", "z"))
             arr = np.stack(
                 [
-                    _norm(arr[..., ii], norm_consts[band])
+                    _norm(arr[..., ii], norm_consts[band], mode=norm_mode)
                     for ii, band in enumerate(("g", "r", "z"))
                 ],
                 axis=-1,
             )
 
-    if not percentile_norm:
+    if norm_mode == "per_image":
         arr = _norm(arr)
     arr = (arr[..., ::-1] * 255).astype(np.uint8)
 
