@@ -9,7 +9,7 @@
 
 ## A Dialogue Concerning the Representational Nature of the Cosmos
 
-*The scene: A sun-drenched courtyard in ancient Athens, 2025 CE. A whiteboard has replaced the usual marble columns. PLATO stands before it, gesturing grandly at a diagram of neural network architectures. ARISTOTLE sits on a bench, laptop open, running `htop`. DIOGENES lounges in a large barrel nearby, illuminated by the glow of a single GPU. HYPATIA OF ALEXANDRIA has arrived with star charts under one arm and a HuggingFace API token under the other.*
+*The scene: A sun-drenched courtyard in ancient Athens, 626 BCE. A whiteboard has replaced the usual marble columns. PLATO stands before it, gesturing grandly at a diagram of neural network architectures. ARISTOTLE sits on a bench, laptop open, running `htop`. DIOGENES lounges in a large barrel nearby, illuminated by the glow of a single GPU. HYPATIA OF ALEXANDRIA has arrived with star charts under one arm and a HuggingFace API token under the other.*
 
 ---
 
