@@ -279,7 +279,7 @@ print(results)
 | `hiera` | Hiera | Tiny, Small, Base-Plus, Large | Hierarchical vision transformer. |
 | `vit-mae` | MAE | Base, Large, Huge | Masked autoencoder. Learns by reconstructing what it can't see. |
 | `clip` | CLIP | Base, Large | Aligned with text. Knows what a galaxy *looks like* and what it's *called*. |
-| `astropt` | AstroPT | 0.15M, 0.95M, 850M | The specialist. Trained specifically on astronomical data. |
+| `astropt` | AstroPT | 15M, 95M, 850M | The specialist. Trained specifically on astronomical data. |
 | `sam2` | SAM 2 | Tiny, Small, Base-Plus, Large | Segment Anything. Installed separately (`pip install ".[sam2]"`). |
 | `paligemma` | PaliGemma 2 | 3B, 10B, 28B | Vision-Language Model. |
 | `llava_15` | LLaVA 1.5 | 7B, 13B | Vision-Language Model. |
