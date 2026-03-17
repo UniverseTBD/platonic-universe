@@ -82,6 +82,7 @@ def main():
             resize_mode=args.resize_mode,
             all_metrics=args.all_metrics,
             max_samples=1000 if args.test else 10000 if args.test_10k else None,
+            plot_samples=args.test or args.test_10k,
         )
     elif args.command == "compare":
         # Lazy import to avoid loading transformers/torchvision

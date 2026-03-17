@@ -13,9 +13,9 @@ from pu.models import get_adapter
 from pu.pu_datasets import get_dataset_adapter
 from pu.metrics import mknn, compare, compute_cka_mmap
 #from astroclip.models.specformer import SpecFormer
-from pu.utils import write_bin
+from pu.utils import write_bin, plot_sample_galaxies
 
-def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=False, resize_mode="match", all_metrics=False, max_samples=None):
+def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=False, resize_mode="match", all_metrics=False, max_samples=None, plot_samples=False):
     """Runs the embedding generation experiment based on the provided arguments.
 
     Args:
@@ -120,6 +120,9 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         sizes, model_names = model_map[model_alias]
     except KeyError:
         raise NotImplementedError(f"Model '{model_alias}' not implemented.")
+
+    if plot_samples:
+        plot_sample_galaxies(hf_ds, modes, comp_mode, resize=resize, resize_mode=resize_mode)
 
     adapter_cls = get_adapter(model_alias)
     for size, model_name in zip(sizes, model_names):
