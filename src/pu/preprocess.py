@@ -9,7 +9,6 @@ from torchvision import transforms
 
 from pu.zoom import resize_galaxy_to_fit
 
-# Default percentiles file path (relative to package root or cwd)
 _PERCENTILES_PATH = os.path.join("data", "percentiles.json")
 _percentiles_cache = None
 
@@ -23,7 +22,7 @@ def _load_percentiles():
     path = os.environ.get("PU_PERCENTILES_PATH", _PERCENTILES_PATH)
     with open(path) as f:
         _percentiles_cache = json.load(f)
-        return _percentiles_cache
+    return _percentiles_cache
 
 
 class PreprocessHF:
