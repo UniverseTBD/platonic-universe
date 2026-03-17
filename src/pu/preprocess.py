@@ -154,7 +154,7 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
             )
         else: # match
             arr = resize_galaxy_to_fit(
-                arr, force_extent=(68, 92, 68, 92), target_size=24
+                arr, force_extent=(68, 92, 68, 92), target_size=96
             )
 
         if percentile_norm:
@@ -209,7 +209,7 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
                 )
             else: # match
                 arr = resize_galaxy_to_fit(
-                    arr, force_extent=(72, 88, 72, 88), target_size=16
+                    arr, force_extent=(72, 88, 72, 88), target_size=96
                 )
 
         if percentile_norm:
