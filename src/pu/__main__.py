@@ -18,6 +18,7 @@ def main():
     parser_run.add_argument("--all-metrics", action="store_true", help="Compute all available metrics (not just MKNN and CKA).")
     parser_run.add_argument("--resize", action="store_true", help="Resize galaxies during preprocessing")
     parser_run.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy: 'match' aligns HSC/LegacySurvey to the compared survey's framing using fixed extents; 'fill' uses adaptive per-galaxy Otsu cropping so each galaxy fills the frame. Default: match.")
+    parser_run.add_argument("--test", action="store_true", help="Quick test run using only 1000 samples.")
 
     # Subparser for running metrics comparisons
     parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
@@ -79,6 +80,7 @@ def main():
             resize=args.resize,
             resize_mode=args.resize_mode,
             all_metrics=args.all_metrics,
+            max_samples=1000 if args.test else None,
         )
     elif args.command == "compare":
         # Lazy import to avoid loading transformers/torchvision
