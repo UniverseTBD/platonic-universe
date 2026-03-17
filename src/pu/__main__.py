@@ -16,7 +16,7 @@ def main():
     parser_run.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
     parser_run.add_argument("--knn-k", type=int, default=10, help="K value for mutual KNN calculation.")
     parser_run.add_argument("--all-metrics", action="store_true", help="Compute all available metrics (not just MKNN and CKA).")
-    parser_run.add_argument("--resize", action="store_true", help="Resize galaxies during preprocessing")
+    parser_run.add_argument("--no-resize", dest="resize", action="store_false", help="Disable galaxy resizing during preprocessing (enabled by default)")
     parser_run.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy: 'match' aligns HSC/LegacySurvey to the compared survey's framing using fixed extents; 'fill' uses adaptive per-galaxy Otsu cropping so each galaxy fills the frame. Default: match.")
     parser_run.add_argument("--test", action="store_true", help="Quick test run using only 1000 samples.")
     parser_run.add_argument("--test-10k", action="store_true", help="Test run using only 10000 samples.")

@@ -5,7 +5,7 @@ def write_bin(mat, path):
     mat.astype(np.float64).tofile(path)
 
 
-def plot_sample_galaxies(hf_ds, modes, comp_mode, resize=False, resize_mode="match", n_cols=8):
+def plot_sample_galaxies(hf_ds, modes, comp_mode, resize=True, resize_mode="match", n_cols=8):
     """Plot a sample grid of galaxies for visual sanity checking.
 
     For image modes (jwst, legacysurvey): 2-row grid (HSC top, comp_mode bottom).

@@ -11,7 +11,7 @@ from pu.zoom import resize_galaxy_to_fit
 class PreprocessHF:
     """Preprocessor that converts galaxy images to the format expected by Dino and ViT models"""
 
-    def __init__(self, modes, autoproc, resize=False, resize_mode="match", alias=None):
+    def __init__(self, modes, autoproc, resize=True, resize_mode="match", alias=None):
         self.modes = modes
         self.autoproc = autoproc
         self.alias = alias
@@ -52,7 +52,7 @@ class PreprocessSAM2:
         self,
         modes,
         sam2_transforms,
-        resize=False,
+        resize=True,
         resize_mode="match",
     ):
         self.modes = modes
@@ -92,7 +92,7 @@ class PreprocessAstropt:
         self,
         modality_registry,
         modes,
-        resize=False,
+        resize=True,
         resize_mode="match",
     ):
         self.galproc = GalaxyImageDataset(
@@ -122,7 +122,7 @@ class PreprocessAstropt:
         return result
 
 
-def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mode="match"):
+def flux_to_pil(blob, mode, modes, resize=True, percentile_norm=True, resize_mode="match"):
     """
     Convert raw fluxes to PIL imagery
     """
@@ -148,14 +148,15 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
         else:
             raise ValueError(f"Array shape {arr.shape} for {mode} not recognised")
 
-        if resize_mode == "fill":
-            arr = resize_galaxy_to_fit(
-                arr, target_size=96
-            )
-        else: # match
-            arr = resize_galaxy_to_fit(
-                arr, force_extent=(68, 92, 68, 92), target_size=96
-            )
+        if resize:
+            if resize_mode == "fill":
+                arr = resize_galaxy_to_fit(
+                    arr, target_size=96
+                )
+            else: # match
+                arr = resize_galaxy_to_fit(
+                    arr, force_extent=(68, 92, 68, 92), target_size=96
+                )
 
         if percentile_norm:
             norm_consts = {
