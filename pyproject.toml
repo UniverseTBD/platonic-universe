@@ -30,7 +30,7 @@ requires = ["setuptools>=42", "wheel", "pybind11>=2.10"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-platonic_universe = "pu.__main__:main"
+pu = "pu.__main__:main"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
