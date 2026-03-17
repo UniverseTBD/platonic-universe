@@ -272,16 +272,18 @@ print(results)
 |-------|-------------|-------|-----------|
 | `vit` | Vision Transformer | Base, Large, Huge | The original. Attention is all you need (to look at galaxies). |
 | `dino` | DINOv2 | Small, Base, Large, Giant | Self-supervised. Learns by staring at images without being told what they are. Very Diogenes. |
+| `dinov3` | DINOv3 | ViT-S/16, ViT-S/16+, ViT-B/16, ViT-L/16, ViT-H/16+, ViT-7B/16 | The next generation. Six sizes, from small to 7 billion parameters. |
 | `convnext` | ConvNeXtv2 | Nano, Tiny, Base, Large | CNNs that decided to dress up as transformers and attend the party anyway. |
 | `ijepa` | I-JEPA | Huge, Giant | Predicts missing pieces of images in latent space. Very Plato — it reasons about the unseen. |
-| `vjepa` | V-JEPA | — | Same idea, but for video. |
-| `hiera` | Hiera | — | Hierarchical vision transformer. |
-| `vit-mae` | MAE | — | Masked autoencoder. Learns by reconstructing what it can't see. |
-| `clip` | CLIP | — | Aligned with text. Knows what a galaxy *looks like* and what it's *called*. |
-| `astropt` | AstroPT | Small, Base, Large | The specialist. Trained specifically on astronomical data. |
-| `sam2` | SAM 2 | — | Segment Anything. Installed separately (`pip install ".[sam2]"`). |
+| `vjepa` | V-JEPA | Large, Huge, Giant | Same idea, but for video. Three sizes to choose from. |
+| `hiera` | Hiera | Tiny, Small, Base-Plus, Large | Hierarchical vision transformer. |
+| `vit-mae` | MAE | Base, Large, Huge | Masked autoencoder. Learns by reconstructing what it can't see. |
+| `clip` | CLIP | Base, Large | Aligned with text. Knows what a galaxy *looks like* and what it's *called*. |
+| `astropt` | AstroPT | 0.15M, 0.95M, 850M | The specialist. Trained specifically on astronomical data. |
+| `sam2` | SAM 2 | Tiny, Small, Base-Plus, Large | Segment Anything. Installed separately (`pip install ".[sam2]"`). |
 | `paligemma` | PaliGemma 2 | 3B, 10B, 28B | Vision-Language Model. |
 | `llava_15` | LLaVA 1.5 | 7B, 13B | Vision-Language Model. |
+| `llava_ov` | LLaVA-OneVision | 7B | Vision-Language Model. The new hotness. |
 
 **DIOGENES:** That's a lot of models.
 
