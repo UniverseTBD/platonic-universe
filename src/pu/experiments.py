@@ -13,9 +13,9 @@ from pu.models import get_adapter
 from pu.pu_datasets import get_dataset_adapter
 from pu.metrics import mknn, compare, compute_cka_mmap
 #from astroclip.models.specformer import SpecFormer
-from pu.utils import write_bin
+from pu.utils import write_bin, plot_sample_galaxies
 
-def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=False, resize_mode="match", all_metrics=False):
+def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=True, resize_mode="match", all_metrics=False, max_samples=None, plot_samples=False):
     """Runs the embedding generation experiment based on the provided arguments.
 
     Args:
@@ -28,6 +28,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         resize: If True, enable galaxy resizing
         resize_mode: 'match' to align to compared survey framing, 'fill' for adaptive per-galaxy cropping
         all_metrics: If True, compute all available metrics instead of just MKNN and CKA
+        max_samples: If set, limit the dataset to this many samples (e.g. 1000 for a quick test run)
     """
 
     comp_mode = mode
@@ -120,6 +121,9 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
     except KeyError:
         raise NotImplementedError(f"Model '{model_alias}' not implemented.")
 
+    if plot_samples:
+        plot_sample_galaxies(hf_ds, modes, comp_mode, resize=resize, resize_mode=resize_mode)
+
     adapter_cls = get_adapter(model_alias)
     for size, model_name in zip(sizes, model_names):
         size_df = pl.DataFrame()
@@ -133,6 +137,8 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         dataset_adapter.load()
         ds = dataset_adapter.prepare(processor, modes, filterfun)
 
+        if max_samples is not None:
+            ds = ds.take(max_samples)
 
         dl = iter(DataLoader(ds, batch_size=batch_size, num_workers=num_workers))
 

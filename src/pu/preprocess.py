@@ -1,3 +1,5 @@
+import json
+import os
 from functools import partial
 
 import numpy as np
@@ -7,11 +9,26 @@ from torchvision import transforms
 
 from pu.zoom import resize_galaxy_to_fit
 
+_PERCENTILES_PATH = os.path.join("data", "percentiles.json")
+_percentiles_cache = None
+
+
+def _load_percentiles():
+    """Load percentiles from JSON file, with caching."""
+    global _percentiles_cache
+    if _percentiles_cache is not None:
+        return _percentiles_cache
+
+    path = os.environ.get("PU_PERCENTILES_PATH", _PERCENTILES_PATH)
+    with open(path) as f:
+        _percentiles_cache = json.load(f)
+    return _percentiles_cache
+
 
 class PreprocessHF:
     """Preprocessor that converts galaxy images to the format expected by Dino and ViT models"""
 
-    def __init__(self, modes, autoproc, resize=False, resize_mode="match", alias=None):
+    def __init__(self, modes, autoproc, resize=True, resize_mode="match", alias=None):
         self.modes = modes
         self.autoproc = autoproc
         self.alias = alias
@@ -52,7 +69,7 @@ class PreprocessSAM2:
         self,
         modes,
         sam2_transforms,
-        resize=False,
+        resize=True,
         resize_mode="match",
     ):
         self.modes = modes
@@ -92,7 +109,7 @@ class PreprocessAstropt:
         self,
         modality_registry,
         modes,
-        resize=False,
+        resize=True,
         resize_mode="match",
     ):
         self.galproc = GalaxyImageDataset(
@@ -122,25 +139,51 @@ class PreprocessAstropt:
         return result
 
 
-def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mode="match"):
+def _get_norm_consts(mode, band_names):
+    """Load norm constants from percentiles.json."""
+    percentiles = _load_percentiles()
+    if percentiles is None:
+        raise FileNotFoundError(
+            f"Percentiles file not found. Run 'pu percentiles' first to generate it."
+        )
+    mode_data = percentiles[mode]
+    return {
+        band: (mode_data[band]["p1"], mode_data[band]["p99"])
+        for band in band_names
+    }
+
+
+def flux_to_pil(blob, mode, modes, resize=True, norm_mode="arcsinh", resize_mode="match", stretch_alpha=20):
     """
     Convert raw fluxes to PIL imagery
+
+    norm_mode: "arcsinh" (default) — arcsinh stretch with global percentile softening
+               "linear" — linear percentile clip (old default)
+               "per_image" — per-image arcsinh (no global percentiles)
     """
 
-    def _norm(chan, percentiles=None):
+    def _norm(chan, percentiles=None, mode="arcsinh"):
         if percentiles is not None:
-            # if percentiles are present norm by them
             v0, v1 = percentiles
-            chan = ((chan - v0) / (v1 - v0)).clip(0, 1)
+            if mode == "arcsinh":
+                t = (chan - v0) / (v1 - v0)
+                stretched = np.arcsinh(stretch_alpha * t)
+                s_high = np.arcsinh(stretch_alpha)
+                chan = (stretched / s_high).clip(0, 1)
+            else:  # linear
+                chan = ((chan - v0) / (v1 - v0)).clip(0, 1)
         else:
-            # else assume we norm per image
-            scale = np.percentile(chan, 99) - np.percentile(chan, 1)
-            chan = np.arcsinh((chan - np.percentile(chan, 1)) / scale)
-            chan = (chan - chan.min()) / (chan.max() - chan.min())
+            # per-image fallback
+            p1 = np.percentile(chan, 1)
+            p99 = np.percentile(chan, 99)
+            t = (chan - p1) / (p99 - p1)
+            stretched = np.arcsinh(stretch_alpha * t)
+            s_high = np.arcsinh(stretch_alpha)
+            chan = (stretched / s_high).clip(0, 1)
         return chan
 
     arr = np.asarray(blob["flux"], np.float32)
-    if mode == "hsc":
+    if mode == "hsc": #160x160 pixels in MMU dataset
         if arr.ndim == 3:
             arr = np.stack([arr[0], arr[1], arr[3]], axis=-1)  # grz
         elif arr.ndim == 2:
@@ -148,8 +191,7 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
         else:
             raise ValueError(f"Array shape {arr.shape} for {mode} not recognised")
 
-        if (("jwst" in modes) or ("desi" in modes) or ("sdss" in modes)) and resize:
-            # if comparing hsc to jwst resize hsc so it matches jwst
+        if resize:
             if resize_mode == "fill":
                 arr = resize_galaxy_to_fit(
                     arr, target_size=96
@@ -159,21 +201,17 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
                     arr, force_extent=(68, 92, 68, 92), target_size=96
                 )
 
-        if percentile_norm:
-            norm_consts = {
-                "g": (-0.01787552610039711, 0.35058236330747405),
-                "r": (-0.026543444022536278, 0.7422214198112442),
-                "z": (-0.057812731899321075, 1.508440258502958),
-            }
+        if norm_mode in ("arcsinh", "linear"):
+            norm_consts = _get_norm_consts("hsc", ("g", "r", "z"))
             arr = np.stack(
                 [
-                    _norm(arr[..., ii], norm_consts[band])
+                    _norm(arr[..., ii], norm_consts[band], mode=norm_mode)
                     for ii, band in enumerate(("g", "r", "z"))
                 ],
                 axis=-1,
             )
 
-    if mode == "jwst":  # 0.04 pixel per arcsec
+    if mode == "jwst":  # 0.04 pixel per arcsec, 96x96 pixels in MMU dataset
         if arr.ndim == 3:
             arr = np.stack([arr[0], arr[4], arr[6]], axis=-1)
         elif arr.ndim == 2:
@@ -181,15 +219,11 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
         else:
             raise ValueError(f"Array shape {arr.shape} for {mode} not recognised")
 
-        if percentile_norm:
-            norm_consts = {
-                "f090w": (-0.07078961282968521, 2.4474363327026367),
-                "f277w": (-0.017583513632416725, 5.846490383148193),
-                "f444w": (-0.0294732004404068, 4.091785907745361),
-            }
+        if norm_mode in ("arcsinh", "linear"):
+            norm_consts = _get_norm_consts("jwst", ("f090w", "f277w", "f444w"))
             arr = np.stack(
                 [
-                    _norm(arr[..., ii], norm_consts[band])
+                    _norm(arr[..., ii], norm_consts[band], mode=norm_mode)
                     for ii, band in enumerate(("f090w", "f277w", "f444w"))
                 ],
                 axis=-1,
@@ -207,28 +241,24 @@ def flux_to_pil(blob, mode, modes, resize=False, percentile_norm=True, resize_mo
             # we always resize legacy to match hsc for our use-case
             if resize_mode == "fill":
                 arr = resize_galaxy_to_fit(
-                    arr, target_size=160
+                    arr, target_size=96
                 )
             else: # match
                 arr = resize_galaxy_to_fit(
-                    arr, force_extent=(36, 124, 36, 124), target_size=160
+                    arr, force_extent=(72, 88, 72, 88), target_size=96
                 )
 
-        if percentile_norm:
-            norm_consts = {
-                "g": (-0.0023022370878607035, 0.009575212374329567),
-                "r": (-0.003597061627078801, 0.021863272413611412),
-                "z": (-0.009074461692944168, 0.042978320308029616),
-            }
+        if norm_mode in ("arcsinh", "linear"):
+            norm_consts = _get_norm_consts("legacysurvey", ("g", "r", "z"))
             arr = np.stack(
                 [
-                    _norm(arr[..., ii], norm_consts[band])
+                    _norm(arr[..., ii], norm_consts[band], mode=norm_mode)
                     for ii, band in enumerate(("g", "r", "z"))
                 ],
                 axis=-1,
             )
 
-    if not percentile_norm:
+    if norm_mode == "per_image":
         arr = _norm(arr)
     arr = (arr[..., ::-1] * 255).astype(np.uint8)
 

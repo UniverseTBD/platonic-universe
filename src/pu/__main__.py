@@ -16,8 +16,10 @@ def main():
     parser_run.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
     parser_run.add_argument("--knn-k", type=int, default=10, help="K value for mutual KNN calculation.")
     parser_run.add_argument("--all-metrics", action="store_true", help="Compute all available metrics (not just MKNN and CKA).")
-    parser_run.add_argument("--resize", action="store_true", help="Resize galaxies during preprocessing")
+    parser_run.add_argument("--no-resize", dest="resize", action="store_false", help="Disable galaxy resizing during preprocessing (enabled by default)")
     parser_run.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy: 'match' aligns HSC/LegacySurvey to the compared survey's framing using fixed extents; 'fill' uses adaptive per-galaxy Otsu cropping so each galaxy fills the frame. Default: match.")
+    parser_run.add_argument("--test", action="store_true", help="Quick test run using only 1000 samples.")
+    parser_run.add_argument("--test-10k", action="store_true", help="Test run using only 10000 samples.")
 
     # Subparser for running metrics comparisons
     parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
@@ -38,6 +40,12 @@ def main():
     parser_calibrate.add_argument("--size", type=str, default=None, help="Model size to compare. Default: first size in file.")
     parser_calibrate.add_argument("--n-permutations", type=int, default=1000, help="Number of permutations for null distribution.")
     parser_calibrate.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility.")
+
+    # Subparser for computing dataset percentiles
+    parser_percentiles = subparsers.add_parser("percentiles", help="Compute 1st/99th percentiles for dataset bands.")
+    parser_percentiles.add_argument("--max-samples", type=int, default=10000, help="Max galaxies per dataset (default: 10000).")
+    parser_percentiles.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy (default: match).")
+    parser_percentiles.add_argument("--output", type=str, default="data/percentiles.json", help="Output JSON path (default: data/percentiles.json).")
 
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
@@ -79,6 +87,8 @@ def main():
             resize=args.resize,
             resize_mode=args.resize_mode,
             all_metrics=args.all_metrics,
+            max_samples=1000 if args.test else 10000 if args.test_10k else None,
+            plot_samples=args.test or args.test_10k,
         )
     elif args.command == "compare":
         # Lazy import to avoid loading transformers/torchvision
@@ -145,6 +155,13 @@ def main():
             json.dump(results, f, indent=2, default=str)
 
         print(json.dumps(results, indent=2, default=str))
+    elif args.command == "percentiles":
+        from pu.percentiles import compute_percentiles
+        compute_percentiles(
+            max_samples=args.max_samples,
+            resize_mode=args.resize_mode,
+            output_path=args.output,
+        )
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
 
