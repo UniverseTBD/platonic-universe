@@ -1,10 +1,6 @@
 # The Platonic Universe 🔮💫
 
 ### *Do Foundation Models See the Same Sky?*
-
-> *"The things which are seen are temporal; but the things which are unseen are eternal."*
-> — Someone who definitely wasn't talking about latent embeddings, but could have been
-
 ---
 
 ## A Dialogue Concerning the Representational Nature of the Cosmos
