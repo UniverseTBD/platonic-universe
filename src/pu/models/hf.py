@@ -55,7 +55,7 @@ class HFAdapter(ModelAdapter):
             )
 
 
-    def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "fill"):
+    def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "match"):
         return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
@@ -135,7 +135,7 @@ class VLMAdapter(HFAdapter):
             )
 
     def get_preprocessor(self, modes: Iterable[str], **kwargs):
-        # PreprocessHF works with AutoProcessor just as well as AutoImageProcessor
+        kwargs.setdefault("alias", self.alias)
         return PreprocessHF(modes, self.processor, **kwargs)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
