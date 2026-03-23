@@ -1,7 +1,6 @@
 import os
 import logging
 from typing import Optional, Dict, Any
-from . import hf    # this will call all register_adapter() calls inside hf.py
 
 
 # Public helpers for programmatic use (wrappers around your CLI handlers)
