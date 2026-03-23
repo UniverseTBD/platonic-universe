@@ -114,6 +114,27 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["tiny", "small", "base-plus", "large"],
             [f"facebook/hiera-{s}-224-hf" for s in ["tiny", "small", "base-plus", "large"]],
         ),
+        "paligemma": (
+            ["3b", "10b", "28b"],
+            [
+                "google/paligemma2-3b-pt-224",
+                "google/paligemma2-10b-pt-224",
+                "google/paligemma2-28b-pt-224",
+            ],
+        ),
+        "llava_15": (
+            ["7b", "13b"],
+            [
+                "llava-hf/llava-1.5-7b-hf",
+                "llava-hf/llava-1.5-13b-hf",
+            ],
+        ),
+        "llava_ov": (
+            ["7b"],
+            [
+                "llava-hf/llava-onevision-qwen2-7b-ov-hf",
+            ],
+        ),
     }
 
     try:

@@ -134,9 +134,9 @@ class VLMAdapter(HFAdapter):
                 self.model, mode="reduce-overhead", fullgraph=False
             )
 
-    def get_preprocessor(self, modes: Iterable[str]):
+    def get_preprocessor(self, modes: Iterable[str], **kwargs):
         # PreprocessHF works with AutoProcessor just as well as AutoImageProcessor
-        return PreprocessHF(modes, self.processor, resize=False)
+        return PreprocessHF(modes, self.processor, **kwargs)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         pv = batch[f"{mode}"].to("cuda")
