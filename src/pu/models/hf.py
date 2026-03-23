@@ -135,6 +135,7 @@ class VLMAdapter(HFAdapter):
             )
 
     def get_preprocessor(self, modes: Iterable[str], **kwargs):
+        # kwargs.pop("resize", None)
         kwargs.setdefault("alias", self.alias)
         return PreprocessHF(modes, self.processor, **kwargs)
 
