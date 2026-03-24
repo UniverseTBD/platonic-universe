@@ -427,15 +427,11 @@ def run_physics_tests(
 
     Returns:
         Nested dict: {property_key: {metric_name: value, ...}, ...}
-        Also includes a ``"_joint"`` key with the joint neighbor set overlap
-        across all tested properties.
 
     Example:
         >>> results = run_physics_tests(Z, {"stellar_mass": mass_arr, "redshift": z_arr})
         >>> results["stellar_mass"]["linear_probe_r2"]
         0.72
-        >>> results["_joint"]["joint_overlap"]
-        0.15
     """
     if property_keys is None:
         property_keys = [p for p in DEFAULT_PROPERTIES if p in properties]
@@ -458,10 +454,10 @@ def run_physics_tests(
         }
 
     # Joint retrieval metric across all tested properties
-    tested_keys = [k for k in property_keys if k in results]
-    results["_joint"] = joint_neighbor_set_overlap(
-        Z, properties, property_keys=tested_keys, k=k,
-    )
+    #tested_keys = [k for k in property_keys if k in results]
+    #results["_joint"] = joint_neighbor_set_overlap(
+    #    Z, properties, property_keys=tested_keys, k=k,
+    #)
 
     return results
 

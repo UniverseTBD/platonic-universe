@@ -470,8 +470,8 @@ def run_physics_experiment(
         )
 
         # Print results
-        print(f"\n  {'Property':<25} {'Lin R²':<12} {'±std':<10} {'Neighbor':<12} {'Dist Corr':<12}")
-        print(f"  {'-'*60}")
+        print(f"\n  {'Property':<25} {'Lin R²':<12} {'±std':<10} {'Neighbor':<12} {'Dist Corr':<12} {'MKNN prop':<12}")
+        print(f"  {'-'*80}")
         for prop_key, metrics in size_results.items():
             lr2 = metrics.get("linear_probe_r2", float("nan"))
             lr2_std = metrics.get("linear_probe_r2_std", float("nan"))
@@ -480,36 +480,17 @@ def run_physics_experiment(
             nso = metrics.get("neighbor_set_overlap", float("nan"))
             print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f} {nc:<12.4f} {dc:<12.4f} {nso:<12.4f}")
 
-            # Print joint retrieval result
-            joint = size_results.get("_joint", {})
-            joint_overlap = joint.get("joint_overlap", float("nan"))
-            joint_n_props = joint.get("n_properties", 0)
-            joint_n_samp = joint.get("n_samples", 0)
-            print(f"\n  Joint neighbor set overlap: {joint_overlap:.4f} "
-                  f"({joint_n_props} properties, {joint_n_samp} galaxies)")
-            
-            # Store results (convert _joint dict values for JSON serialisation)
             size_props = {}
             for k, v in size_results.items():
-                if k == "_joint":
-                    continue
                 size_props[k] = {
                     mk: float(mv) if isinstance(mv, (int, float)) and np.isfinite(mv) else None
                     for mk, mv in v.items()
                 }
-             
-            print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f} {nc:<12.4f} {dc:<12.4f}")
 
         all_results["sizes"][size] = {
             "n_samples": n_samples,
             "embedding_dim": Z.shape[1],
             "properties": size_props,
-            "joint_retrieval": {
-                "joint_overlap": float(joint_overlap) if np.isfinite(joint_overlap) else None,
-                "n_properties": joint_n_props,
-                "n_samples": joint_n_samp,
-                "properties_used": joint.get("properties_used", []),
-            },
         }
 
         # --- Generate visualisation
