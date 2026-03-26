@@ -50,7 +50,19 @@ class PreprocessHF:
                 continue
             else:
                 im = self.f2p(idx[f"{mode}_image"], mode, self.modes)
-                if self.alias in self._IMAGES_KWARG_ALIASES:
+                if self.alias in ("llava_15", "llava_15_7b", "llava_15_13b",
+                                     "llava_ov", "llava_ov_7b"):
+                    proc_out = self.autoproc(
+                        images=im, text="<image>",
+                        return_tensors="pt", padding=True,
+                    )
+                elif self.alias in ("paligemma", "paligemma_3b",
+                                    "paligemma_10b", "paligemma_28b"):
+                    proc_out = self.autoproc(
+                        images=im, text="<image> ",
+                        return_tensors="pt", padding=True,
+                    )
+                elif self.alias in self._IMAGES_KWARG_ALIASES:
                     proc_out = self.autoproc(images=im, return_tensors="pt")
                 else:
                     proc_out = self.autoproc(im, return_tensors="pt")
