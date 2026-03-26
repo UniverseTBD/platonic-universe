@@ -134,6 +134,14 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["3b"],
             ["google/paligemma2-3b-mix-224"],
         ),
+        "paligemma_10b": (
+            ["10b"],
+            ["google/paligemma2-10b-mix-224"],
+        ),
+        "paligemma_28b": (
+            ["28b"],
+            ["google/paligemma2-28b-mix-224"],
+        ),
         "llava_15": (
             ["7b", "13b"],
             [
