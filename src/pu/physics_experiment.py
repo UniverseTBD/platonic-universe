@@ -473,6 +473,8 @@ def run_physics_experiment(
         print(f"\n  {'Property':<25} {'Lin R²':<12} {'±std':<10} {'Neighbor':<12} {'Dist Corr':<12} {'MKNN prop':<12}")
         print(f"  {'-'*80}")
         for prop_key, metrics in size_results.items():
+            if prop_key.startswith("_"):
+                continue
             lr2 = metrics.get("linear_probe_r2", float("nan"))
             lr2_std = metrics.get("linear_probe_r2_std", float("nan"))
             nc = metrics.get("neighbor_consistency", float("nan"))
@@ -480,16 +482,27 @@ def run_physics_experiment(
             nso = metrics.get("neighbor_set_overlap", float("nan"))
             print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f} {nc:<12.4f} {dc:<12.4f} {nso:<12.4f}")
 
-            size_props = {}
-            for k, v in size_results.items():
-                size_props[k] = {
-                    mk: float(mv) if isinstance(mv, (int, float)) and np.isfinite(mv) else None
-                    for mk, mv in v.items()
-                }
+        # Print mean R² summary
+        summary = size_results.get("_summary", {})
+        r2_mean = summary.get("r2_mean", float("nan"))
+        print(f"  {'-'*80}")
+        print(f"  {'MEAN R²':<25} {r2_mean:<12.4f}")
 
+        size_props = {}
+        for k, v in size_results.items():
+            if k.startswith("_"):
+                continue
+            size_props[k] = {
+                mk: float(mv) if isinstance(mv, (int, float)) and np.isfinite(mv) else None
+                for mk, mv in v.items()
+            }
+
+        summary = size_results.get("_summary", {})
         all_results["sizes"][size] = {
             "n_samples": n_samples,
             "embedding_dim": Z.shape[1],
+            "r2_mean": summary.get("r2_mean"),
+            "r2_per_property": summary.get("r2_per_property"),
             "properties": size_props,
         }
 

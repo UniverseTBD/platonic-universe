@@ -459,6 +459,13 @@ def run_physics_tests(
     #    Z, properties, property_keys=tested_keys, k=k,
     #)
 
+    # Summary: mean R² across all tested properties
+    r2_values = {k: v["linear_probe_r2"] for k, v in results.items()}
+    results["_summary"] = {
+        "r2_per_property": r2_values,
+        "r2_mean": float(np.nanmean(list(r2_values.values()))),
+    }
+
     return results
 
 

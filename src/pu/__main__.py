@@ -85,6 +85,28 @@ def main():
         help="Dimensionality reduction for visualisation (default: pca).",
     )
 
+    # Subparser for running physics tests across all models
+    parser_physics_all = subparsers.add_parser(
+        "run-physics-all",
+        help="Run physics tests across all (or specified) models and produce a combined comparison.",
+    )
+    parser_physics_all.add_argument(
+        "--split", default="test", choices=["test", "validation", "train"],
+        help="Dataset split to use (default: test).",
+    )
+    parser_physics_all.add_argument(
+        "--max-samples", type=int, default=0,
+        help="Max galaxies to process (default: all). Use 0 for all.",
+    )
+    parser_physics_all.add_argument(
+        "--batch-size", type=int, default=128,
+        help="Batch size for inference.",
+    )
+    parser_physics_all.add_argument(
+        "--models", nargs="+", default=None,
+        help="Models to test (default: all in PHYSICS_MODEL_MAP).",
+    )
+
     # Subparser for computing dataset percentiles
     parser_percentiles = subparsers.add_parser("percentiles", help="Compute 1st/99th percentiles for dataset bands.")
     parser_percentiles.add_argument("--max-samples", type=int, default=10000, help="Max galaxies per dataset (default: 10000).")
@@ -221,13 +243,69 @@ def main():
         print(f"PHYSICS TEST SUMMARY: {args.model}")
         print(f"{'='*70}")
         for size, size_data in results["sizes"].items():
+            r2_mean = size_data.get("r2_mean")
+            r2_mean_str = f"{r2_mean:.4f}" if r2_mean is not None else "N/A"
             print(f"\n  {args.model}-{size} ({size_data['n_samples']} samples, "
-                  f"dim={size_data['embedding_dim']})")
+                  f"dim={size_data['embedding_dim']})  mean_R²={r2_mean_str}")
             for prop, metrics in size_data["properties"].items():
                 lr2 = metrics.get("linear_probe_r2")
                 lr2_str = f"{lr2:.4f}" if lr2 is not None else "N/A"
                 print(f"    {prop:<25} linear_probe_r2={lr2_str}")
         print(f"{'='*70}")
+    elif args.command == "run-physics-all":
+        from pu.physics_experiment import PHYSICS_MODEL_MAP, run_physics_experiment
+
+        max_samples = args.max_samples if args.max_samples != 0 else None
+        model_list = args.models or list(PHYSICS_MODEL_MAP.keys())
+
+        combined = {"split": args.split, "models": {}}
+
+        for model_alias in model_list:
+            if model_alias not in PHYSICS_MODEL_MAP:
+                print(f"Warning: '{model_alias}' not in PHYSICS_MODEL_MAP, skipping.")
+                continue
+
+            print(f"\n{'#'*70}")
+            print(f"# Running physics tests for: {model_alias}")
+            print(f"{'#'*70}")
+
+            results = run_physics_experiment(
+                model_alias=model_alias,
+                split=args.split,
+                max_samples=max_samples,
+                batch_size=args.batch_size,
+            )
+
+            model_entry = {}
+            for size, size_data in results["sizes"].items():
+                model_entry[size] = {
+                    "r2_mean": size_data.get("r2_mean"),
+                    "r2_per_property": size_data.get("r2_per_property"),
+                    "n_samples": size_data["n_samples"],
+                    "embedding_dim": size_data["embedding_dim"],
+                }
+            combined["models"][model_alias] = model_entry
+
+        # Print comparison table
+        print(f"\n{'='*70}")
+        print("PHYSICS COMPARISON: mean R² across models")
+        print(f"{'='*70}")
+        print(f"  {'Model':<15} {'Size':<15} {'mean R²':<12} {'dim':<8} {'n':<8}")
+        print(f"  {'-'*58}")
+        for model_alias, sizes in combined["models"].items():
+            for size, data in sizes.items():
+                r2 = data.get("r2_mean")
+                r2_str = f"{r2:.4f}" if r2 is not None else "N/A"
+                print(f"  {model_alias:<15} {size:<15} {r2_str:<12} {data['embedding_dim']:<8} {data['n_samples']:<8}")
+        print(f"{'='*70}")
+
+        # Save combined JSON
+        os.makedirs("data", exist_ok=True)
+        output_path = f"data/physics_all_{args.split}.json"
+        with open(output_path, "w") as f:
+            json.dump(combined, f, indent=2)
+        print(f"\nCombined results saved to {output_path}")
+
     elif args.command == "percentiles":
         from pu.percentiles import compute_percentiles
         compute_percentiles(
