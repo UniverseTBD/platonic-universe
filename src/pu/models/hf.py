@@ -129,9 +129,8 @@ class VLMAdapter(HFAdapter):
         self.model = AutoModelForImageTextToText.from_pretrained(
             self.model_name,
             dtype=torch.bfloat16,
-            device_map="auto",
             low_cpu_mem_usage=True,
-        ).eval()
+        ).to("cuda").eval()
         if compile_model:
             self.model = torch.compile(
                 self.model, mode="reduce-overhead", fullgraph=False
@@ -139,7 +138,7 @@ class VLMAdapter(HFAdapter):
 
     def get_preprocessor(self, modes: Iterable[str], resize: bool = True, resize_mode: str = "match"):
         # PreprocessHF works with AutoProcessor just as well as AutoImageProcessor
-        return PreprocessHF(modes, self.processor, resize=resize, resize_mode=resize_mode)
+        return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         import warnings
@@ -161,17 +160,23 @@ class VLMAdapter(HFAdapter):
         from PIL import Image
         B      = pv.shape[0]
         prompt = self._PROMPTS.get(self.alias, " ")
-        size   = pv.shape[-1]   # use the actual spatial size (224 or 336)
-        dummy  = [
-            Image.fromarray(np.ones((size, size, 3), dtype=np.uint8) * 128)
-            for _ in range(B)
+        # Reconstruct PIL images from the batch tensor for the processor
+        # pv is (B, C, H, W) float, convert back to uint8 PIL for processor
+        pv_cpu = pv.cpu().float()
+        pv_cpu = (pv_cpu - pv_cpu.min()) / (pv_cpu.max() - pv_cpu.min() + 1e-8)
+        pv_cpu = (pv_cpu * 255).byte()
+        pil_images = [
+            Image.fromarray(pv_cpu[i].permute(1, 2, 0).numpy())
+            for i in range(B)
         ]
         enc = self.processor(
-            images=dummy, text=[prompt] * B,
+            images=pil_images, text=[prompt] * B,
             return_tensors="pt", padding=True,
         )
         input_ids = enc["input_ids"].to("cuda")
         attn_mask = enc["attention_mask"].to("cuda")
+        # Use processor-normalized pixel_values (correct dtype/scale for model)
+        pv = enc["pixel_values"].to("cuda", dtype=model_dtype)
 
         with torch.no_grad():
             out = self.model(
