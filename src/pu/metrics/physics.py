@@ -437,6 +437,8 @@ def run_physics_tests(
         property_keys = [p for p in DEFAULT_PROPERTIES if p in properties]
 
     results: dict[str, dict[str, float]] = {}
+    # Collect per-fold R² arrays for SE propagation
+    fold_arrays: dict[str, list[float]] = {}
 
     for key in property_keys:
         if key not in properties:
@@ -448,10 +450,12 @@ def run_physics_tests(
         results[key] = {
             "linear_probe_r2": lp["mean"],
             "linear_probe_r2_std": lp["std"],
+            "linear_probe_r2_folds": lp["folds"],
             "neighbor_consistency": neighbor_property_consistency(Z, y, k=k),
             "distance_correlation": embedding_property_correlation(Z, y),
             "neighbor_set_overlap": neighbor_set_overlap(Z, y, k=k),
         }
+        fold_arrays[key] = lp["folds"]
 
     # Joint retrieval metric across all tested properties
     #tested_keys = [k for k in property_keys if k in results]
@@ -459,11 +463,36 @@ def run_physics_tests(
     #    Z, properties, property_keys=tested_keys, k=k,
     #)
 
-    # Summary: mean R² across all tested properties
+    # Summary: mean R² across all tested properties with propagated SE.
+    #
+    # Each property i has F cross-validation fold scores.  Its mean R²_i
+    # has standard error  se_i = std_i / sqrt(F).
+    # The grand mean  R̄² = (1/K) Σ R²_i  (K properties) has variance
+    #   Var(R̄²) = (1/K²) Σ se_i²  = (1/K²) Σ (std_i² / F)
+    # assuming independence across properties (different targets, same
+    # embedding matrix — fold splits are shared but targets are independent
+    # so the R² estimators are effectively uncorrelated).
     r2_values = {k: v["linear_probe_r2"] for k, v in results.items()}
+    r2_means = np.array([v for v in r2_values.values()])
+    K = np.sum(np.isfinite(r2_means))
+
+    if K > 0 and len(fold_arrays) > 0:
+        # Propagate CV fold variances → SE of the grand mean
+        sum_var = 0.0
+        for folds in fold_arrays.values():
+            arr = np.array(folds)
+            if len(arr) > 1 and np.all(np.isfinite(arr)):
+                sum_var += np.var(arr, ddof=1) / len(arr)  # se_i² = s²/F
+        r2_se = float(np.sqrt(sum_var) / K)
+    else:
+        r2_se = float("nan")
+
     results["_summary"] = {
         "r2_per_property": r2_values,
-        "r2_mean": float(np.nanmean(list(r2_values.values()))),
+        "r2_mean": float(np.nanmean(r2_means)),
+        "r2_se": r2_se,
+        "r2_std": float(np.nanstd(r2_means)),
+        "n_properties": int(K),
     }
 
     return results

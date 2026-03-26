@@ -244,9 +244,11 @@ def main():
         print(f"{'='*70}")
         for size, size_data in results["sizes"].items():
             r2_mean = size_data.get("r2_mean")
+            r2_se = size_data.get("r2_se")
             r2_mean_str = f"{r2_mean:.4f}" if r2_mean is not None else "N/A"
+            r2_se_str = f"{r2_se:.4f}" if r2_se is not None else "N/A"
             print(f"\n  {args.model}-{size} ({size_data['n_samples']} samples, "
-                  f"dim={size_data['embedding_dim']})  mean_R²={r2_mean_str}")
+                  f"dim={size_data['embedding_dim']})  mean_R²={r2_mean_str} ±{r2_se_str}")
             for prop, metrics in size_data["properties"].items():
                 lr2 = metrics.get("linear_probe_r2")
                 lr2_str = f"{lr2:.4f}" if lr2 is not None else "N/A"
@@ -280,6 +282,8 @@ def main():
             for size, size_data in results["sizes"].items():
                 model_entry[size] = {
                     "r2_mean": size_data.get("r2_mean"),
+                    "r2_se": size_data.get("r2_se"),
+                    "r2_std": size_data.get("r2_std"),
                     "r2_per_property": size_data.get("r2_per_property"),
                     "n_samples": size_data["n_samples"],
                     "embedding_dim": size_data["embedding_dim"],
@@ -290,13 +294,19 @@ def main():
         print(f"\n{'='*70}")
         print("PHYSICS COMPARISON: mean R² across models")
         print(f"{'='*70}")
-        print(f"  {'Model':<15} {'Size':<15} {'mean R²':<12} {'dim':<8} {'n':<8}")
-        print(f"  {'-'*58}")
+        print(f"  {'Model':<15} {'Size':<15} {'mean R² ± SE':<18} {'dim':<8} {'n':<8}")
+        print(f"  {'-'*64}")
         for model_alias, sizes in combined["models"].items():
             for size, data in sizes.items():
                 r2 = data.get("r2_mean")
-                r2_str = f"{r2:.4f}" if r2 is not None else "N/A"
-                print(f"  {model_alias:<15} {size:<15} {r2_str:<12} {data['embedding_dim']:<8} {data['n_samples']:<8}")
+                se = data.get("r2_se")
+                if r2 is not None and se is not None:
+                    r2_str = f"{r2:.4f} ±{se:.4f}"
+                elif r2 is not None:
+                    r2_str = f"{r2:.4f}"
+                else:
+                    r2_str = "N/A"
+                print(f"  {model_alias:<15} {size:<15} {r2_str:<18} {data['embedding_dim']:<8} {data['n_samples']:<8}")
         print(f"{'='*70}")
 
         # Save combined JSON

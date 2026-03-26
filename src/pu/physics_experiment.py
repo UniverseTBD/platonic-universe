@@ -485,24 +485,32 @@ def run_physics_experiment(
         # Print mean R² summary
         summary = size_results.get("_summary", {})
         r2_mean = summary.get("r2_mean", float("nan"))
+        r2_se = summary.get("r2_se", float("nan"))
         print(f"  {'-'*80}")
-        print(f"  {'MEAN R²':<25} {r2_mean:<12.4f}")
+        print(f"  {'MEAN R²':<25} {r2_mean:<12.4f} ±{r2_se:<9.4f} (SE, {summary.get('n_properties', 0)} properties)")
 
         size_props = {}
         for k, v in size_results.items():
             if k.startswith("_"):
                 continue
-            size_props[k] = {
-                mk: float(mv) if isinstance(mv, (int, float)) and np.isfinite(mv) else None
-                for mk, mv in v.items()
-            }
+            prop_dict = {}
+            for mk, mv in v.items():
+                if isinstance(mv, list):
+                    prop_dict[mk] = mv
+                elif isinstance(mv, (int, float)) and np.isfinite(mv):
+                    prop_dict[mk] = float(mv)
+                else:
+                    prop_dict[mk] = None
+            size_props[k] = prop_dict
 
-        summary = size_results.get("_summary", {})
         all_results["sizes"][size] = {
             "n_samples": n_samples,
             "embedding_dim": Z.shape[1],
             "r2_mean": summary.get("r2_mean"),
+            "r2_se": summary.get("r2_se"),
+            "r2_std": summary.get("r2_std"),
             "r2_per_property": summary.get("r2_per_property"),
+            "n_properties": summary.get("n_properties"),
             "properties": size_props,
         }
 
