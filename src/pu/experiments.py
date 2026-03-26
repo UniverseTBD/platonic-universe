@@ -12,7 +12,6 @@ import tempfile
 from pu.models import get_adapter
 from pu.pu_datasets import get_dataset_adapter
 from pu.metrics import mknn, compare, compute_cka_mmap
-#from astroclip.models.specformer import SpecFormer
 from pu.utils import write_bin, plot_sample_galaxies
 
 def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=True, resize_mode="match", all_metrics=False, max_samples=None, plot_samples=False):
@@ -32,7 +31,12 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
     """
 
     comp_mode = mode
-    modes = ["hsc", comp_mode]
+    is_spectral_model = model_alias == "specformer"
+    if is_spectral_model:
+        # Spectral-only models process spectra directly; no HSC image pairing
+        modes = [comp_mode]
+    else:
+        modes = ["hsc", comp_mode]
     hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
     upload_ds = output_dataset
 
@@ -114,13 +118,21 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["tiny", "small", "base-plus", "large"],
             [f"facebook/hiera-{s}-224-hf" for s in ["tiny", "small", "base-plus", "large"]],
         ),
+        "specformer": (
+            ["43M"],
+            ["polymathic-ai/specformer"],
+        ),
         "paligemma": (
             ["3b", "10b", "28b"],
             [
-                "google/paligemma2-3b-pt-224",
-                "google/paligemma2-10b-pt-224",
-                "google/paligemma2-28b-pt-224",
+                "google/paligemma2-3b-mix-224",
+                "google/paligemma2-10b-mix-224",
+                "google/paligemma2-28b-mix-224",
             ],
+        ),
+        "paligemma_3b": (
+            ["3b"],
+            ["google/paligemma2-3b-mix-224"],
         ),
         "llava_15": (
             ["7b", "13b"],
@@ -131,9 +143,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         ),
         "llava_ov": (
             ["7b"],
-            [
-                "llava-hf/llava-onevision-qwen2-7b-ov-hf",
-            ],
+            ["llava-hf/llava-onevision-qwen2-7b-ov-hf"],
         ),
     }
 
@@ -153,7 +163,9 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         processor = adapter.get_preprocessor(modes, resize=resize, resize_mode=resize_mode)
 
         # Use dataset adapter to prepare the dataset (centralises dataset-specific logic)
-        dataset_adapter_cls = get_dataset_adapter(comp_mode)
+        # Spectral models use the raw spectra adapter variant
+        ds_alias = f"{comp_mode}_spectra" if is_spectral_model else comp_mode
+        dataset_adapter_cls = get_dataset_adapter(ds_alias)
         dataset_adapter = dataset_adapter_cls(hf_ds, comp_mode)
         dataset_adapter.load()
         ds = dataset_adapter.prepare(processor, modes, filterfun)
@@ -167,7 +179,11 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         with torch.no_grad():
             for B in tqdm(dl):
                 for mode in modes:
-                    if mode == "sdss":
+                    if is_spectral_model:
+                        # Spectral models compute embeddings from raw spectra
+                        outputs = adapter.embed_for_mode(B, mode)
+                        zs[mode].append(outputs)
+                    elif mode == "sdss":
                         zs[mode].append(torch.tensor(np.array(B["embedding"])).T)
                     elif mode == "desi":
                         zs[mode].append(torch.tensor(np.array(B["embeddings"])).T)
@@ -178,6 +194,25 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
 
 
         zs = {mode: torch.cat(embs) for mode, embs in zs.items()}
+
+        if is_spectral_model:
+            # Spectral-only model: save embeddings, skip metric computation
+            Z = zs[modes[0]].cpu().numpy()
+            print(f"\n[{model_alias} {size}] Generated {Z.shape[0]} embeddings (dim={Z.shape[1]})")
+
+            size_df = size_df.with_columns(
+                pl.Series(
+                    f"{model_alias}_{size.lstrip('0')}_{comp_mode}".lower(),
+                    Z,
+                )
+            )
+
+            os.makedirs("data", exist_ok=True)
+            size_df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
+            print(f"Saved to data/{comp_mode}_{model_alias}_{size}.parquet")
+            print("Use 'platonic_universe compare' to compare against image model embeddings.")
+            continue
+
         Z1 = zs[modes[0]].cpu().numpy()
         Z2 = zs[modes[1]].cpu().numpy()
 
@@ -256,53 +291,3 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         )
 
         size_df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
-
-        # if upload_ds is not None:
-        #     Dataset.from_polars(df).push_to_hub(upload_ds)
-
-
-# def get_specformer_embeddings(dataset_name="Smith42/desi_hsc_crossmatched", batch_size=128, num_workers=0):
-#     """Generates embeddings using the SpecFormer model for the given dataset."""
-
-#     device = "cuda" if torch.cuda.is_available() else "cpu"
-
-#     def _process_galaxy_wrapper(idx):
-#         spectra = np.array(idx["spectrum"]["flux"], dtype=np.float32)[..., np.newaxis]
-#         return {
-#             "spectra": spectra,
-#         }
-
-#     def load_specformer_model(checkpoint_path):
-#         """Load SpecFormer model from checkpoint."""
-#         checkpoint = torch.load(checkpoint_path, weights_only=False)
-#         model = SpecFormer(**checkpoint["hyper_parameters"])
-#         model.load_state_dict(checkpoint["state_dict"])
-#         model.eval()
-#         return model
-#     # Load model
-#     checkpoint_path = "specformer.ckpt"
-#     model = load_specformer_model(checkpoint_path).to(device)
-#     ds = (
-#         load_dataset(dataset_name, split="train", streaming=True)
-#         .select_columns(("spectrum"))
-#         .map(_process_galaxy_wrapper)
-#         .remove_columns(("spectrum"))
-#     )
-
-#     dl = iter(DataLoader(ds, batch_size=batch_size, num_workers=num_workers))
-
-#     embedddings = []
-
-#     with torch.no_grad():
-#         for B in tqdm(dl):
-#             S = B["spectra"].to(device)
-#             output = model(S)
-#             # Extract the embedding (not the reconstruction)
-#             batch_embeddings = output["embedding"].detach().cpu().numpy()
-#             embedddings.append(batch_embeddings[:, 1:, :].mean(axis=1))
-#     embedddings = np.concatenate(embedddings, axis=0)
-
-#     print(f"Output embeddings shape: {embedddings.shape}")
-    
-#     os.makedirs("data", exist_ok=True)
-#     np.save(f"data/specformer_{dataset_name.split('/')[-1].replace('_', '-')}_embeddings.npy", embedddings)

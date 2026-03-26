@@ -55,7 +55,7 @@ class HFAdapter(ModelAdapter):
             )
 
 
-    def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "match"):
+    def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "fill"):
         return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
@@ -116,16 +116,19 @@ class VLMAdapter(HFAdapter):
     # of image token slots. Empty string works for PaliGemma (processor
     # handles token injection implicitly); LLaVA variants need "<image>".
     _PROMPTS = {
-        "paligemma": " ",
-        "llava_15":  "USER: <image>\n ASSISTANT:",
-        "llava_ov":  "<image>",
+        "paligemma":    "<image> ",
+        "paligemma_3b": "<image> ",
+        "paligemma_10b":"<image> ",
+        "paligemma_28b":"<image> ",
+        "llava_15":     "USER: <image>\n ASSISTANT:",
+        "llava_ov":     "<image>",
     }
 
     def load(self, compile_model: bool = False) -> None:
         self.processor = AutoProcessor.from_pretrained(self.model_name)
         self.model = AutoModelForImageTextToText.from_pretrained(
             self.model_name,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map="auto",
             low_cpu_mem_usage=True,
         ).eval()
@@ -134,12 +137,16 @@ class VLMAdapter(HFAdapter):
                 self.model, mode="reduce-overhead", fullgraph=False
             )
 
-    def get_preprocessor(self, modes: Iterable[str], **kwargs):
-        # kwargs.pop("resize", None)
-        kwargs.setdefault("alias", self.alias)
-        return PreprocessHF(modes, self.processor, **kwargs)
+    def get_preprocessor(self, modes: Iterable[str], resize: bool = True, resize_mode: str = "match"):
+        # PreprocessHF works with AutoProcessor just as well as AutoImageProcessor
+        return PreprocessHF(modes, self.processor, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
+        import warnings
+        warnings.filterwarnings("ignore", message=".*PaliGemma.*")
+        warnings.filterwarnings("ignore", message=".*PaliGemmaProcessor.*")
+        warnings.filterwarnings("ignore", message=".*text prefix.*")
+        warnings.filterwarnings("ignore", message=".*special image tokens.*")
         pv = batch[f"{mode}"].to("cuda")
 
         # Cast pixel_values to match model weights dtype (bf16) to avoid
@@ -172,11 +179,24 @@ class VLMAdapter(HFAdapter):
                 pixel_values=pv,
                 attention_mask=attn_mask,
                 return_dict=True,
+                output_hidden_states=True,  # needed: CausalLMOutput has no .last_hidden_state
             )
-            # last_hidden_state is the LLM sequence output; mean-pool over tokens
-            emb = out.last_hidden_state          # (B, seq_len, D)
+            # hidden_states[-1] is the final LLM layer output (B, seq_len, D)
+            # For PaliGemma: image_hidden_states is the vision-encoder output —
+            # we use the LLM hidden states instead so both families share one path.
+            if hasattr(out, "hidden_states") and out.hidden_states is not None:
+                hs = out.hidden_states[-1]           # (B, seq_len, D)
+            elif hasattr(out, "image_hidden_states") and out.image_hidden_states is not None:
+                # fallback: use vision encoder output directly, mean-pool patches
+                hs = out.image_hidden_states.mean(dim=1, keepdim=True)
+                attn_mask = torch.ones(hs.shape[:2], device=hs.device)
+            else:
+                raise AttributeError(
+                    f"Cannot extract embeddings from {type(out).__name__}. "
+                    f"Available keys: {[k for k,v in out.items() if v is not None]}"
+                )
             m   = attn_mask.float().unsqueeze(-1)
-            emb = (emb * m).sum(1) / m.sum(1).clamp_min(1.0)
+            emb = (hs * m).sum(1) / m.sum(1).clamp_min(1.0)
             emb = emb.float().detach()
         return emb
 
