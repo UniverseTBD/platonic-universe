@@ -60,7 +60,6 @@ for _group in PROPERTY_GROUPS.values():
     ALL_PROPERTIES.update(_group)
 
 # A sensible default subset for quick runs
-# same as in Sogol's tokenizer paper
 DEFAULT_PROPERTIES = [
         "smooth_fraction",
         "disk_fraction",
