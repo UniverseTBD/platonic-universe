@@ -113,6 +113,13 @@ def main():
     parser_percentiles.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy (default: match).")
     parser_percentiles.add_argument("--output", type=str, default="data/percentiles.json", help="Output JSON path (default: data/percentiles.json).")
 
+    # Subparser for pushing embeddings to HF Hub
+    parser_push = subparsers.add_parser("push", help="Push parquet embeddings to a Hugging Face Hub dataset repo.")
+    parser_push.add_argument("parquet_file", nargs="?", default=None, help="Path to a specific parquet file to push.")
+    parser_push.add_argument("--all", action="store_true", dest="push_all", help="Push all data/*.parquet files.")
+    parser_push.add_argument("--dataset", required=True, help="HF dataset repo ID (e.g., 'Smith42/my-embeddings').")
+    parser_push.add_argument("--token", default=None, help="HF token (defaults to cached login).")
+
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
     parser_benchmark.add_argument("--model", required=True, help="Model to benchmark (e.g., 'vit', 'dino').")
@@ -323,6 +330,17 @@ def main():
             resize_mode=args.resize_mode,
             output_path=args.output,
         )
+    elif args.command == "push":
+        from pu.hub import push_all, push_parquet
+
+        if args.parquet_file and args.push_all:
+            parser.error("Specify either a parquet file or --all, not both.")
+        elif args.push_all:
+            push_all("data", args.dataset, token=args.token)
+        elif args.parquet_file:
+            push_parquet(args.parquet_file, args.dataset, token=args.token)
+        else:
+            parser.error("Specify either a parquet file or --all.")
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
 

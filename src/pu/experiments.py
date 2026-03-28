@@ -38,7 +38,6 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
     else:
         modes = ["hsc", comp_mode]
     hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
-    upload_ds = output_dataset
 
     def filterfun(idx):
         if "jwst" != comp_mode:
@@ -185,8 +184,12 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             )
 
             os.makedirs("data", exist_ok=True)
-            size_df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
-            print(f"Saved to data/{comp_mode}_{model_alias}_{size}.parquet")
+            parquet_path = f"data/{comp_mode}_{model_alias}_{size}.parquet"
+            size_df.write_parquet(parquet_path)
+            print(f"Saved to {parquet_path}")
+            if output_dataset:
+                from pu.hub import push_parquet
+                push_parquet(parquet_path, output_dataset)
             print("Use 'platonic_universe compare' to compare against image model embeddings.")
             continue
 
@@ -267,4 +270,9 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ]
         )
 
-        size_df.write_parquet(f"data/{comp_mode}_{model_alias}_{size}.parquet")
+        parquet_path = f"data/{comp_mode}_{model_alias}_{size}.parquet"
+        size_df.write_parquet(parquet_path)
+
+        if output_dataset:
+            from pu.hub import push_parquet
+            push_parquet(parquet_path, output_dataset)
