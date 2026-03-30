@@ -24,7 +24,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import pdist
 from scipy.stats import spearmanr
-
+from scipy.stats import wasserstein_distance as w_d
 
 # ---------------------------------------------------------------------------
 # Canonical physical properties to probe, grouped by science domain.
@@ -400,6 +400,26 @@ def joint_neighbor_set_overlap(
     }
 
 
+def wass_distance(
+    nn1,
+    nn2,
+    params,
+):
+    """
+    Wasserstein distance calculated between physical parameters distributions in two embedding spaces.
+
+    Args:
+        nn1: (n_samples, n_neighbors) neighbor matrix in first embedding space. Values are indices that correspond to param array.
+        nn2: (n_samples, n_neighbors) neighbor matrix in second embedding space. Values are indices that correspond to param array.
+        params: np.array of physical parameters.
+
+    Returns:
+        Average wasserstein distance.
+    """
+
+    w_ds = [w_d(params[nn1[idx]], params[nn2[idx]]) for idx in range(nn1.shape[0])]
+    return w_ds
+        
 
 # ---------------------------------------------------------------------------
 # Batch runner

@@ -56,6 +56,33 @@ def mknn(
     return float(np.mean(overlap) / k)
 
 
+def mknn_neighbor_input(
+    nn1: NDArray[np.floating],
+    nn2: NDArray[np.floating],
+) -> float:
+    """
+    Mutual k-Nearest Neighbors overlap.
+
+    Measures the overlap between k-nearest neighbor sets in two
+    embedding spaces. For each sample, finds its k nearest neighbors
+    in both spaces and computes the intersection.
+
+    Args:
+        nn1: (n_samples, d1) neighbor matrix
+        nn2: (n_samples, d2) neighbor matrix
+        k: Number of nearest neighbors
+
+    Returns:
+        float in [0, 1] where 1 = identical neighbor sets
+
+    Note:
+        Uses cosine distance for neighbor computation.
+    """
+
+    overlap = [len(set(a).intersection(b)) for a, b in zip(nn1, nn2)]
+
+    return float(np.mean(overlap) / nn1.shape[1])
+
 def jaccard(
     Z1: NDArray[np.floating],
     Z2: NDArray[np.floating],
