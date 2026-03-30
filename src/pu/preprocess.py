@@ -24,9 +24,16 @@ def _load_percentiles():
         _percentiles_cache = json.load(f)
     return _percentiles_cache
 
-
 class PreprocessHF:
     """Preprocessor that converts galaxy images to the format expected by Dino and ViT models"""
+
+    # Processors that require images= as a keyword argument rather than positional
+    _IMAGES_KWARG_ALIASES = {
+        "clip",
+        "paligemma", "paligemma_3b", "paligemma_10b", "paligemma_28b",
+        "llava_15", "llava_15_7b", "llava_15_13b",
+        "llava_ov", "llava_ov_7b",
+    }
 
     def __init__(self, modes, autoproc, resize=True, resize_mode="match", alias=None):
         self.modes = modes
@@ -43,24 +50,35 @@ class PreprocessHF:
                 continue
             else:
                 im = self.f2p(idx[f"{mode}_image"], mode, self.modes)
-                if self.alias == "clip":
+                if self.alias in ("llava_15", "llava_15_7b", "llava_15_13b",
+                                     "llava_ov", "llava_ov_7b"):
+                    proc_out = self.autoproc(
+                        images=im, text="<image>",
+                        return_tensors="pt", padding=True,
+                    )
+                elif self.alias in ("paligemma", "paligemma_3b",
+                                    "paligemma_10b", "paligemma_28b"):
+                    proc_out = self.autoproc(
+                        images=im, text="<image> ",
+                        return_tensors="pt", padding=True,
+                    )
+                elif self.alias in self._IMAGES_KWARG_ALIASES:
                     proc_out = self.autoproc(images=im, return_tensors="pt")
                 else:
                     proc_out = self.autoproc(im, return_tensors="pt")
                 if "pixel_values" in proc_out:
-                    # first try for image models
                     result[f"{mode}"] = proc_out["pixel_values"].squeeze()
                 elif "pixel_values_videos" in proc_out:
-                    # then try for video models
-                    result[f"{mode}"] = self.autoproc(im, return_tensors="pt")[
-                        "pixel_values_videos"
-                    ].repeat(1, 16, 1, 1, 1).squeeze()
+                    result[f"{mode}"] = proc_out["pixel_values_videos"].repeat(
+                        1, 16, 1, 1, 1
+                    ).squeeze()
                 else:
-                    # finally bail if there is an issue
-                    raise KeyError("autoproc does not have 'pixel_values' or 'pixel_values_videos' in its dict")
-
+                    raise KeyError(
+                        "autoproc does not have 'pixel_values' or "
+                        "'pixel_values_videos' in its dict"
+                    )
         return result
-    
+
 
 class PreprocessSAM2:
     """Preprocessor that converts galaxy images to the format expected by SAM2 models"""
