@@ -117,9 +117,43 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["tiny", "small", "base-plus", "large"],
             [f"facebook/hiera-{s}-224-hf" for s in ["tiny", "small", "base-plus", "large"]],
         ),
+        "aion": (
+            ["300M"],
+            ["polymathic-ai/aion-base"],
         "specformer": (
             ["43M"],
             ["polymathic-ai/specformer"],
+        ),
+        "paligemma": (
+            ["3b", "10b", "28b"],
+            [
+                "google/paligemma2-3b-mix-224",
+                "google/paligemma2-10b-mix-224",
+                "google/paligemma2-28b-mix-224",
+            ],
+        ),
+        "paligemma_3b": (
+            ["3b"],
+            ["google/paligemma2-3b-mix-224"],
+        ),
+        "paligemma_10b": (
+            ["10b"],
+            ["google/paligemma2-10b-mix-224"],
+        ),
+        "paligemma_28b": (
+            ["28b"],
+            ["google/paligemma2-28b-mix-224"],
+        ),
+        "llava_15": (
+            ["7b", "13b"],
+            [
+                "llava-hf/llava-1.5-7b-hf",
+                "llava-hf/llava-1.5-13b-hf",
+            ],
+        ),
+        "llava_ov": (
+            ["7b"],
+            ["llava-hf/llava-onevision-qwen2-7b-ov-hf"],
         ),
     }
 
