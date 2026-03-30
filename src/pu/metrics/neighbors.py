@@ -64,19 +64,15 @@ def mknn_neighbor_input(
     Mutual k-Nearest Neighbors overlap.
 
     Measures the overlap between k-nearest neighbor sets in two
-    embedding spaces. For each sample, finds its k nearest neighbors
-    in both spaces and computes the intersection.
+    embedding spaces. 
 
     Args:
-        nn1: (n_samples, d1) neighbor matrix
-        nn2: (n_samples, d2) neighbor matrix
-        k: Number of nearest neighbors
+        nn1: (n_samples, k) neighbor matrix
+        nn2: (n_samples, k) neighbor matrix
 
     Returns:
         float in [0, 1] where 1 = identical neighbor sets
 
-    Note:
-        Uses cosine distance for neighbor computation.
     """
 
     overlap = [len(set(a).intersection(b)) for a, b in zip(nn1, nn2)]
