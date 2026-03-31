@@ -307,12 +307,9 @@ def plot_physics_embeddings(
         # Annotate metrics
         metrics = size_results.get(prop_key, {})
         lr2 = metrics.get("linear_probe_r2", float("nan"))
-        nc = metrics.get("neighbor_consistency", float("nan"))
-        dc = metrics.get("distance_correlation", float("nan"))
-        nso = metrics.get("neighbor_set_overlap", float("nan"))
         ax.text(
             0.02, 0.98,
-            f"R²={lr2:.3f}\nNC={nc:.3f}\nρ={dc:.3f}\nNSO={nso:.3f}",
+            f"R²={lr2:.3f}",
             transform=ax.transAxes, fontsize=7,
             verticalalignment="top", fontfamily="monospace",
             bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
@@ -477,10 +474,7 @@ def run_physics_experiment(
                 continue
             lr2 = metrics.get("linear_probe_r2", float("nan"))
             lr2_std = metrics.get("linear_probe_r2_std", float("nan"))
-            nc = metrics.get("neighbor_consistency", float("nan"))
-            dc = metrics.get("distance_correlation", float("nan"))
-            nso = metrics.get("neighbor_set_overlap", float("nan"))
-            print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f} {nc:<12.4f} {dc:<12.4f} {nso:<12.4f}")
+            print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f}")
 
         # Print mean R² summary
         summary = size_results.get("_summary", {})
