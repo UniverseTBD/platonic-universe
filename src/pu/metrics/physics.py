@@ -446,15 +446,25 @@ def run_physics_tests(
         y = properties[key]
         lp = linear_probe(Z, y, cv=cv)
 
+        # linear_probe returns a dict on success, float("nan") on too-few samples
+        if isinstance(lp, dict):
+            lp_r2 = lp["mean"]
+            lp_std = lp["std"]
+            lp_folds = lp["folds"]
+        else:
+            lp_r2 = float("nan")
+            lp_std = float("nan")
+            lp_folds = []
+
         results[key] = {
-            "linear_probe_r2": lp["mean"],
-            "linear_probe_r2_std": lp["std"],
-            "linear_probe_r2_folds": lp["folds"],
+            "linear_probe_r2": lp_r2,
+            "linear_probe_r2_std": lp_std,
+            "linear_probe_r2_folds": lp_folds,
             "neighbor_consistency": neighbor_property_consistency(Z, y, k=k),
             "distance_correlation": embedding_property_correlation(Z, y),
             "neighbor_set_overlap": neighbor_set_overlap(Z, y, k=k),
         }
-        fold_arrays[key] = lp["folds"]
+        fold_arrays[key] = lp_folds
 
     # Joint retrieval metric across all tested properties
     #tested_keys = [k for k in property_keys if k in results]

@@ -14,21 +14,51 @@ except ImportError:
 
 
 class PreprocessAION:
-    """Preprocessor that passes raw flux data through AION's native
-    modality-aware transforms instead of the lossy flux_to_pil path."""
+    """Preprocessor that tokenizes raw flux data through AION's codec
+    pipeline instead of the lossy flux_to_pil path."""
+
+    # Map dataset mode names to AION modality classes and token keys
+    _MODE_MAP = {
+        "hsc": ("HSCImage", "tok_image_hsc"),
+        "legacy": ("LegacySurveyImage", "tok_image"),
+        "jwst": ("Image", "tok_image"),
+    }
 
     def __init__(self, modes, model):
         self.modes = modes
         self.model = model
+        from aion.codecs.manager import CodecManager
+        self.codec_mgr = CodecManager(device="cpu")
 
     def __call__(self, idx):
+        import aion.modalities as mod
+
         result = {}
         for mode in self.modes:
             if mode in ("desi", "sdss"):
                 continue
+            if mode not in self._MODE_MAP:
+                continue
+            cls_name, token_key = self._MODE_MAP[mode]
+            modality_cls = getattr(mod, cls_name)
+
             flux = np.asarray(idx[f"{mode}_image"]["flux"], dtype=np.float32)
-            preprocessed = self.model.preprocess(flux, modality=mode)
-            result[mode] = preprocessed
+            flux_t = torch.from_numpy(flux)
+            if flux_t.ndim == 2:
+                flux_t = flux_t.unsqueeze(0)  # (H, W) -> (1, H, W)
+            elif flux_t.ndim == 3 and flux_t.shape[-1] in (3, 5):
+                flux_t = flux_t.permute(2, 0, 1)  # (H, W, C) -> (C, H, W)
+            flux_t = flux_t.unsqueeze(0)  # add batch dim
+            # Use actual survey band names that AION's codec expects
+            _BAND_NAMES = {
+                "hsc": ["HSC-G", "HSC-R", "HSC-I", "HSC-Z", "HSC-Y"],
+                "legacy": ["DES-G", "DES-R", "DES-I", "DES-Z"],
+            }
+            band_list = _BAND_NAMES.get(mode, [f"band_{i}" for i in range(flux_t.shape[1])])
+            bands = band_list[:flux_t.shape[1]]
+            modality = modality_cls(flux=flux_t, bands=bands)
+            tokens = self.codec_mgr.encode(modality)
+            result[mode] = tokens[token_key].squeeze(0)
         return result
 
 
@@ -66,10 +96,19 @@ class AIONAdapter(ModelAdapter):
         return PreprocessAION(modes, self.model)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
-        inputs = batch[mode].to("cuda")
+        tokens = batch[mode].to("cuda")
+
+        # Map mode names to AION token keys
+        token_key_map = {
+            "galaxies": "tok_image_hsc",
+            "hsc": "tok_image_hsc",
+            "legacy": "tok_image",
+            "jwst": "tok_image",
+        }
+        token_key = token_key_map.get(mode, f"tok_{mode}")
 
         with torch.no_grad():
-            outputs = self.model(inputs)
+            outputs = self.model.encode({token_key: tokens})
 
             # Pool spatial dims if present (B, C, H, W) -> (B, C)
             if outputs.dim() == 4:
