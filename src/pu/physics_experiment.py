@@ -148,6 +148,10 @@ def _make_galaxies_preprocessor(adapter, model_alias):
 
             if adapter.alias == "clip":
                 proc_out = proc(images=img, return_tensors="pt")
+            elif hasattr(adapter, "_PROMPTS"):
+                # VLM adapters (PaliGemma, LLaVA, etc.) need text + images
+                prompt = adapter._PROMPTS.get(adapter.alias, "<image> ")
+                proc_out = proc(text=prompt, images=img, return_tensors="pt")
             else:
                 proc_out = proc(img, return_tensors="pt")
 

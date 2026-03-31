@@ -128,9 +128,10 @@ class VLMAdapter(HFAdapter):
         self.processor = AutoProcessor.from_pretrained(self.model_name)
         self.model = AutoModelForImageTextToText.from_pretrained(
             self.model_name,
-            dtype=torch.bfloat16,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
             low_cpu_mem_usage=True,
-        ).to("cuda").eval()
+        ).eval()
         if compile_model:
             self.model = torch.compile(
                 self.model, mode="reduce-overhead", fullgraph=False
@@ -146,7 +147,8 @@ class VLMAdapter(HFAdapter):
         warnings.filterwarnings("ignore", message=".*PaliGemmaProcessor.*")
         warnings.filterwarnings("ignore", message=".*text prefix.*")
         warnings.filterwarnings("ignore", message=".*special image tokens.*")
-        pv = batch[f"{mode}"].to("cuda")
+        device = next(self.model.parameters()).device
+        pv = batch[f"{mode}"].to(device)
 
         # Cast pixel_values to match model weights dtype (bf16) to avoid
         # the "Input type / weight type mismatch" RuntimeError
@@ -173,10 +175,10 @@ class VLMAdapter(HFAdapter):
             images=pil_images, text=[prompt] * B,
             return_tensors="pt", padding=True,
         )
-        input_ids = enc["input_ids"].to("cuda")
-        attn_mask = enc["attention_mask"].to("cuda")
+        input_ids = enc["input_ids"].to(device)
+        attn_mask = enc["attention_mask"].to(device)
         # Use processor-normalized pixel_values (correct dtype/scale for model)
-        pv = enc["pixel_values"].to("cuda", dtype=model_dtype)
+        pv = enc["pixel_values"].to(device, dtype=model_dtype)
 
         with torch.no_grad():
             out = self.model(
