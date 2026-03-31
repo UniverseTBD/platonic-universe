@@ -22,6 +22,7 @@ class PreprocessAION:
         "hsc": ("HSCImage", "tok_image_hsc"),
         "legacy": ("LegacySurveyImage", "tok_image"),
         "jwst": ("Image", "tok_image"),
+        "desi": ("LegacySurveyImage", "tok_image"),
     }
 
     def __init__(self, modes, model):
@@ -35,7 +36,7 @@ class PreprocessAION:
 
         result = {}
         for mode in self.modes:
-            if mode in ("desi", "sdss"):
+            if mode in ("sdss",):
                 continue
             if mode not in self._MODE_MAP:
                 continue
@@ -53,6 +54,7 @@ class PreprocessAION:
             _BAND_NAMES = {
                 "hsc": ["HSC-G", "HSC-R", "HSC-I", "HSC-Z", "HSC-Y"],
                 "legacy": ["DES-G", "DES-R", "DES-I", "DES-Z"],
+                "desi": ["DES-G", "DES-R", "DES-Z"],
             }
             band_list = _BAND_NAMES.get(mode, [f"band_{i}" for i in range(flux_t.shape[1])])
             bands = band_list[:flux_t.shape[1]]
@@ -100,10 +102,11 @@ class AIONAdapter(ModelAdapter):
 
         # Map mode names to AION token keys
         token_key_map = {
-            "galaxies": "tok_image_hsc",
+            "galaxies": "tok_image",
             "hsc": "tok_image_hsc",
             "legacy": "tok_image",
             "jwst": "tok_image",
+            "desi": "tok_image",
         }
         token_key = token_key_map.get(mode, f"tok_{mode}")
 

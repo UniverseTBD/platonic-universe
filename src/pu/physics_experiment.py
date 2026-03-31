@@ -207,7 +207,7 @@ def _make_galaxies_preprocessor(adapter, model_alias):
     if model_alias == "aion":
         import torch as _torch
         from aion.codecs.manager import CodecManager
-        from aion.modalities import HSCImage
+        from aion.modalities import LegacySurveyImage
 
         codec_mgr = CodecManager(device="cpu")
 
@@ -220,11 +220,11 @@ def _make_galaxies_preprocessor(adapter, model_alias):
                 flux = np.stack([flux, flux, flux], axis=-1)
             # (H, W, C) -> (C, H, W) and add batch dim
             flux_t = _torch.from_numpy(flux).permute(2, 0, 1).unsqueeze(0)
-            bands = ["HSC-G", "HSC-R", "HSC-I"]
-            modality = HSCImage(flux=flux_t, bands=bands)
+            bands = ["DES-G", "DES-R", "DES-Z"]
+            modality = LegacySurveyImage(flux=flux_t, bands=bands)
             tokens = codec_mgr.encode(modality)
-            # tokens is {"tok_image_hsc": (1, N)} — squeeze batch dim
-            return {"galaxies": tokens["tok_image_hsc"].squeeze(0)}
+            # tokens is {"tok_image": (1, N)} — squeeze batch dim
+            return {"galaxies": tokens["tok_image"].squeeze(0)}
 
         return aion_wrapper
 
