@@ -460,17 +460,8 @@ def run_physics_tests(
             "linear_probe_r2": lp_r2,
             "linear_probe_r2_std": lp_std,
             "linear_probe_r2_folds": lp_folds,
-            "neighbor_consistency": neighbor_property_consistency(Z, y, k=k),
-            "distance_correlation": embedding_property_correlation(Z, y),
-            "neighbor_set_overlap": neighbor_set_overlap(Z, y, k=k),
         }
         fold_arrays[key] = lp_folds
-
-    # Joint retrieval metric across all tested properties
-    #tested_keys = [k for k in property_keys if k in results]
-    #results["_joint"] = joint_neighbor_set_overlap(
-    #    Z, properties, property_keys=tested_keys, k=k,
-    #)
 
     # Summary: mean R² across all tested properties with propagated SE.
     #
