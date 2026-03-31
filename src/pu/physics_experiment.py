@@ -106,6 +106,21 @@ PHYSICS_MODEL_MAP = {
         ["tiny", "small", "base-plus", "large"],
         [f"facebook/hiera-{s}-224-hf" for s in ["tiny", "small", "base-plus", "large"]],
     ),
+    "paligemma": (
+        ["3b", "10b", "28b"],
+        [
+            "google/paligemma2-3b-mix-224",
+            "google/paligemma2-10b-mix-224",
+            "google/paligemma2-28b-mix-224",
+        ],
+    ),
+    "llava_15": (
+        ["7b", "13b"],
+        [
+            "llava-hf/llava-1.5-7b-hf",
+            "llava-hf/llava-1.5-13b-hf",
+        ],
+    ),
 }
 
 
