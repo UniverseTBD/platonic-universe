@@ -14,7 +14,7 @@ from pu.pu_datasets import get_dataset_adapter
 from pu.metrics import mknn, compare, compute_cka_mmap
 from pu.utils import write_bin, plot_sample_galaxies
 
-def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=True, resize_mode="match", all_metrics=False, max_samples=None, plot_samples=False):
+def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_workers=0, knn_k=10, resize=True, resize_mode="match", all_metrics=False, max_samples=None, plot_samples=False, all_layers=False):
     """Runs the embedding generation experiment based on the provided arguments.
 
     Args:
@@ -120,6 +120,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         "aion": (
             ["300M"],
             ["polymathic-ai/aion-base"],
+        ),
         "specformer": (
             ["43M"],
             ["polymathic-ai/specformer"],
@@ -184,6 +185,38 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ds = ds.take(max_samples)
 
         dl = iter(DataLoader(ds, batch_size=batch_size, num_workers=num_workers))
+
+        # --- All-layers mode: save per-layer embeddings and skip metrics ---
+        if all_layers and hasattr(adapter, "embed_all_layers_for_mode"):
+            # zs_layers[mode] is a list-of-lists: zs_layers[mode][layer_idx] = [batch_embs...]
+            zs_layers = {m: None for m in modes}
+            with torch.no_grad():
+                for B in tqdm(dl, desc=f"{model_alias} {size} (all layers)"):
+                    for m in modes:
+                        layer_embs = adapter.embed_all_layers_for_mode(B, m)
+                        if zs_layers[m] is None:
+                            zs_layers[m] = [[] for _ in range(len(layer_embs))]
+                        for li, emb in enumerate(layer_embs):
+                            zs_layers[m][li].append(emb)
+
+            # Concatenate and save
+            os.makedirs("data", exist_ok=True)
+            layers_df = pl.DataFrame()
+            for m in modes:
+                n_layers = len(zs_layers[m])
+                for li in range(n_layers):
+                    Z = torch.cat(zs_layers[m][li]).cpu().numpy()
+                    col_name = f"{model_alias}_{size.lstrip('0')}_{m}_layer{li}".lower()
+                    layers_df = layers_df.with_columns(pl.Series(col_name, list(Z)))
+                print(f"  {m}: saved {n_layers} layers, {Z.shape[0]} samples, dim={Z.shape[1]}")
+
+            parquet_path = f"data/{comp_mode}_{model_alias}_{size}_all_layers.parquet"
+            layers_df.write_parquet(parquet_path)
+            print(f"Saved all-layers embeddings to {parquet_path}")
+            if output_dataset:
+                from pu.hub import push_parquet
+                push_parquet(parquet_path, output_dataset)
+            continue
 
         zs = {mode: [] for mode in modes}
         with torch.no_grad():

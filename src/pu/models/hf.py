@@ -141,7 +141,12 @@ class VLMAdapter(HFAdapter):
         # PreprocessHF works with AutoProcessor just as well as AutoImageProcessor
         return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
-    def embed_for_mode(self, batch: Dict[str, Any], mode: str):
+    def _forward_vlm(self, batch: Dict[str, Any], mode: str):
+        """Shared VLM forward pass. Returns (hidden_states, attention_mask).
+
+        hidden_states is a tuple of (N_layers+1) tensors, each (B, seq_len, D).
+        The first element is the embedding layer; the rest are transformer layers.
+        """
         import warnings
         warnings.filterwarnings("ignore", message=".*PaliGemma.*")
         warnings.filterwarnings("ignore", message=".*PaliGemmaProcessor.*")
@@ -150,20 +155,12 @@ class VLMAdapter(HFAdapter):
         device = next(self.model.parameters()).device
         pv = batch[f"{mode}"].to(device)
 
-        # Cast pixel_values to match model weights dtype (bf16) to avoid
-        # the "Input type / weight type mismatch" RuntimeError
         model_dtype = next(self.model.parameters()).dtype
         pv = pv.to(dtype=model_dtype)
 
-        # Build a minimal tokenised prompt so the model can place image tokens.
-        # We pass dummy images of the correct size; actual visual content comes
-        # from the pv tensor we pass explicitly to model.forward() below.
-        import numpy as np
         from PIL import Image
         B      = pv.shape[0]
         prompt = self._PROMPTS.get(self.alias, " ")
-        # Reconstruct PIL images from the batch tensor for the processor
-        # pv is (B, C, H, W) float, convert back to uint8 PIL for processor
         pv_cpu = pv.cpu().float()
         pv_cpu = (pv_cpu - pv_cpu.min()) / (pv_cpu.max() - pv_cpu.min() + 1e-8)
         pv_cpu = (pv_cpu * 255).byte()
@@ -177,7 +174,6 @@ class VLMAdapter(HFAdapter):
         )
         input_ids = enc["input_ids"].to(device)
         attn_mask = enc["attention_mask"].to(device)
-        # Use processor-normalized pixel_values (correct dtype/scale for model)
         pv = enc["pixel_values"].to(device, dtype=model_dtype)
 
         with torch.no_grad():
@@ -186,26 +182,40 @@ class VLMAdapter(HFAdapter):
                 pixel_values=pv,
                 attention_mask=attn_mask,
                 return_dict=True,
-                output_hidden_states=True,  # needed: CausalLMOutput has no .last_hidden_state
+                output_hidden_states=True,
             )
-            # hidden_states[-1] is the final LLM layer output (B, seq_len, D)
-            # For PaliGemma: image_hidden_states is the vision-encoder output —
-            # we use the LLM hidden states instead so both families share one path.
-            if hasattr(out, "hidden_states") and out.hidden_states is not None:
-                hs = out.hidden_states[-1]           # (B, seq_len, D)
-            elif hasattr(out, "image_hidden_states") and out.image_hidden_states is not None:
-                # fallback: use vision encoder output directly, mean-pool patches
-                hs = out.image_hidden_states.mean(dim=1, keepdim=True)
-                attn_mask = torch.ones(hs.shape[:2], device=hs.device)
-            else:
-                raise AttributeError(
-                    f"Cannot extract embeddings from {type(out).__name__}. "
-                    f"Available keys: {[k for k,v in out.items() if v is not None]}"
-                )
-            m   = attn_mask.float().unsqueeze(-1)
-            emb = (hs * m).sum(1) / m.sum(1).clamp_min(1.0)
-            emb = emb.float().detach()
-        return emb
+
+        if hasattr(out, "hidden_states") and out.hidden_states is not None:
+            return out.hidden_states, attn_mask
+        elif hasattr(out, "image_hidden_states") and out.image_hidden_states is not None:
+            hs = out.image_hidden_states.mean(dim=1, keepdim=True)
+            fallback_mask = torch.ones(hs.shape[:2], device=hs.device)
+            return (hs,), fallback_mask
+        else:
+            raise AttributeError(
+                f"Cannot extract embeddings from {type(out).__name__}. "
+                f"Available keys: {[k for k,v in out.items() if v is not None]}"
+            )
+
+    @staticmethod
+    def _masked_mean_pool(hs, attn_mask):
+        """Attention-masked mean pooling over the sequence dimension."""
+        m = attn_mask.float().unsqueeze(-1)
+        return ((hs * m).sum(1) / m.sum(1).clamp_min(1.0)).float().detach()
+
+    def embed_for_mode(self, batch: Dict[str, Any], mode: str):
+        hidden_states, attn_mask = self._forward_vlm(batch, mode)
+        # hidden_states[-1] is the final LLM layer output (B, seq_len, D)
+        return self._masked_mean_pool(hidden_states[-1], attn_mask)
+
+    def embed_all_layers_for_mode(self, batch: Dict[str, Any], mode: str):
+        """Return mean-pooled embeddings from every hidden-state layer.
+
+        Returns a list of (B, D) tensors, one per layer (including the
+        initial embedding layer at index 0).
+        """
+        hidden_states, attn_mask = self._forward_vlm(batch, mode)
+        return [self._masked_mean_pool(hs, attn_mask) for hs in hidden_states]
 
 # Register this adapter for the HF-style aliases used by the repo
 for alias in (

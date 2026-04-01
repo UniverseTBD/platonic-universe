@@ -391,6 +391,7 @@ def run_physics_experiment(
     properties: list[str] | None = None,
     output_dir: str = "data",
     projection: str = "pca",
+    all_layers: bool = False,
 ) -> dict[str, Any]:
     """
     Run physics validation tests for a model against Smith42/galaxies.
@@ -458,114 +459,196 @@ def run_physics_experiment(
         dl = DataLoader(ds, batch_size=batch_size, num_workers=num_workers)
 
         # --- Inference ---
-        embeddings = []
         metadata_accum: dict[str, list] = {key: [] for key in property_keys}
 
-        with torch.no_grad():
-            for B in tqdm(dl, desc=f"{model_alias}-{size}"):
-                # Use the adapter's own embed_for_mode — same as experiments.py
-                emb = adapter.embed_for_mode(B, "galaxies")
-                embeddings.append(emb.float().cpu())
+        if all_layers and hasattr(adapter, "embed_all_layers_for_mode"):
+            # All-layers mode: extract every hidden-state layer
+            layer_accum: list[list[torch.Tensor]] | None = None
 
-                # Accumulate metadata from this batch
-                for key in property_keys:
-                    col_name = ALL_PROPERTIES.get(key, key)
-                    if col_name in B:
-                        metadata_accum[key].extend(
-                            B[col_name].numpy().tolist()
-                            if hasattr(B[col_name], "numpy")
-                            else list(B[col_name])
-                        )
+            with torch.no_grad():
+                for B in tqdm(dl, desc=f"{model_alias}-{size} (all layers)"):
+                    layer_embs = adapter.embed_all_layers_for_mode(B, "galaxies")
+                    if layer_accum is None:
+                        layer_accum = [[] for _ in range(len(layer_embs))]
+                    for li, emb in enumerate(layer_embs):
+                        layer_accum[li].append(emb.float().cpu())
 
-        Z = torch.cat(embeddings).numpy()
-        n_samples = len(Z)
-        print(f"  Embedded {n_samples} galaxies, shape: {Z.shape}")
+                    for key in property_keys:
+                        col_name = ALL_PROPERTIES.get(key, key)
+                        if col_name in B:
+                            metadata_accum[key].extend(
+                                B[col_name].numpy().tolist()
+                                if hasattr(B[col_name], "numpy")
+                                else list(B[col_name])
+                            )
 
-        os.makedirs(output_dir, exist_ok=True)
-        emb_df = pl.DataFrame(
-            {
-                f"{model_alias}_{size}_galaxies": list(Z),
-            }
-        )
-        parquet_path = os.path.join(
-            output_dir, f"physics_{model_alias}_{size}_{split}.parquet"
-        )
-        emb_df.write_parquet(parquet_path)
-        print(f"  Embeddings saved to {parquet_path}")
+            n_layers = len(layer_accum)
+            Zs = [torch.cat(layer_accum[li]).numpy() for li in range(n_layers)]
+            n_samples = len(Zs[0])
+            print(f"  Embedded {n_samples} galaxies, {n_layers} layers, dim={Zs[0].shape[1]}")
 
-        # --- Build property arrays ---
-        prop_arrays: dict[str, np.ndarray] = {}
-        for key in property_keys:
-            if metadata_accum[key]:
-                arr = np.array(metadata_accum[key], dtype=np.float64)
-                if key in ("sfr", "ssfr"):
-                    arr[arr <= -99] = np.nan
-                # Only include if we have matching lengths and non-trivial data
-                if len(arr) == n_samples and np.any(np.isfinite(arr)):
-                    prop_arrays[key] = arr
-                else:
-                    print(f"  Warning: skipping {key} (length mismatch or all NaN)")
-            else:
-                print(f"  Warning: column for '{key}' not found in dataset")
-
-        # --- Run physics tests ---
-        print(f"\n  Running physics tests on {len(prop_arrays)} properties...")
-        size_results = run_physics_tests(
-            Z, prop_arrays, property_keys=list(prop_arrays.keys()), k=knn_k, cv=cv
-        )
-
-        # Print results
-        print(f"\n  {'Property':<25} {'Lin R²':<12} {'±std':<10} {'Neighbor':<12} {'Dist Corr':<12} {'MKNN prop':<12}")
-        print(f"  {'-'*80}")
-        for prop_key, metrics in size_results.items():
-            if prop_key.startswith("_"):
-                continue
-            lr2 = metrics.get("linear_probe_r2", float("nan"))
-            lr2_std = metrics.get("linear_probe_r2_std", float("nan"))
-            print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f}")
-
-        # Print mean R² summary
-        summary = size_results.get("_summary", {})
-        r2_mean = summary.get("r2_mean", float("nan"))
-        r2_se = summary.get("r2_se", float("nan"))
-        print(f"  {'-'*80}")
-        print(f"  {'MEAN R²':<25} {r2_mean:<12.4f} ±{r2_se:<9.4f} (SE, {summary.get('n_properties', 0)} properties)")
-
-        size_props = {}
-        for k, v in size_results.items():
-            if k.startswith("_"):
-                continue
-            prop_dict = {}
-            for mk, mv in v.items():
-                if isinstance(mv, list):
-                    prop_dict[mk] = mv
-                elif isinstance(mv, (int, float)) and np.isfinite(mv):
-                    prop_dict[mk] = float(mv)
-                else:
-                    prop_dict[mk] = None
-            size_props[k] = prop_dict
-
-        all_results["sizes"][size] = {
-            "n_samples": n_samples,
-            "embedding_dim": Z.shape[1],
-            "r2_mean": summary.get("r2_mean"),
-            "r2_se": summary.get("r2_se"),
-            "r2_std": summary.get("r2_std"),
-            "r2_per_property": summary.get("r2_per_property"),
-            "n_properties": summary.get("n_properties"),
-            "properties": size_props,
-        }
-
-        # --- Generate visualisation
-        if prop_arrays:
-            plot_physics_embeddings(
-                Z, prop_arrays, size_results,
-                model_alias=model_alias,
-                size=size,
-                output_dir=output_dir,
-                split=split,
-                method=projection,
+            # Save per-layer embeddings
+            os.makedirs(output_dir, exist_ok=True)
+            emb_df = pl.DataFrame(
+                {
+                    f"{model_alias}_{size}_galaxies_layer{li}": list(Zs[li])
+                    for li in range(n_layers)
+                }
             )
+            parquet_path = os.path.join(
+                output_dir, f"physics_{model_alias}_{size}_{split}_all_layers.parquet"
+            )
+            emb_df.write_parquet(parquet_path)
+            print(f"  All-layers embeddings saved to {parquet_path}")
+
+            # Build property arrays
+            prop_arrays: dict[str, np.ndarray] = {}
+            for key in property_keys:
+                if metadata_accum[key]:
+                    arr = np.array(metadata_accum[key], dtype=np.float64)
+                    if key in ("sfr", "ssfr"):
+                        arr[arr <= -99] = np.nan
+                    if len(arr) == n_samples and np.any(np.isfinite(arr)):
+                        prop_arrays[key] = arr
+
+            # Run physics tests per layer
+            print(f"\n  Running physics tests on {n_layers} layers x {len(prop_arrays)} properties...")
+            per_layer_results = {}
+            for li in range(n_layers):
+                layer_results = run_physics_tests(
+                    Zs[li], prop_arrays,
+                    property_keys=list(prop_arrays.keys()), k=knn_k, cv=cv,
+                )
+                summary = layer_results.get("_summary", {})
+                per_layer_results[f"layer_{li}"] = {
+                    "r2_mean": summary.get("r2_mean"),
+                    "r2_se": summary.get("r2_se"),
+                    "r2_per_property": summary.get("r2_per_property"),
+                }
+
+            # Print per-layer summary
+            print(f"\n  {'Layer':<10} {'mean R²':<12} {'±SE':<10} {'% depth':<10}")
+            print(f"  {'-'*42}")
+            for li in range(n_layers):
+                lr = per_layer_results[f"layer_{li}"]
+                r2 = lr["r2_mean"] if lr["r2_mean"] is not None else float("nan")
+                se = lr["r2_se"] if lr["r2_se"] is not None else float("nan")
+                pct = li / max(n_layers - 1, 1) * 100
+                print(f"  {li:<10} {r2:<12.4f} {se:<10.4f} {pct:<10.1f}")
+
+            all_results["sizes"][size] = {
+                "n_samples": n_samples,
+                "n_layers": n_layers,
+                "embedding_dim": Zs[0].shape[1],
+                "per_layer": per_layer_results,
+            }
+
+        else:
+            # Standard single-layer mode
+            embeddings = []
+
+            with torch.no_grad():
+                for B in tqdm(dl, desc=f"{model_alias}-{size}"):
+                    emb = adapter.embed_for_mode(B, "galaxies")
+                    embeddings.append(emb.float().cpu())
+
+                    for key in property_keys:
+                        col_name = ALL_PROPERTIES.get(key, key)
+                        if col_name in B:
+                            metadata_accum[key].extend(
+                                B[col_name].numpy().tolist()
+                                if hasattr(B[col_name], "numpy")
+                                else list(B[col_name])
+                            )
+
+            Z = torch.cat(embeddings).numpy()
+            n_samples = len(Z)
+            print(f"  Embedded {n_samples} galaxies, shape: {Z.shape}")
+
+            os.makedirs(output_dir, exist_ok=True)
+            emb_df = pl.DataFrame(
+                {
+                    f"{model_alias}_{size}_galaxies": list(Z),
+                }
+            )
+            parquet_path = os.path.join(
+                output_dir, f"physics_{model_alias}_{size}_{split}.parquet"
+            )
+            emb_df.write_parquet(parquet_path)
+            print(f"  Embeddings saved to {parquet_path}")
+
+            # --- Build property arrays ---
+            prop_arrays: dict[str, np.ndarray] = {}
+            for key in property_keys:
+                if metadata_accum[key]:
+                    arr = np.array(metadata_accum[key], dtype=np.float64)
+                    if key in ("sfr", "ssfr"):
+                        arr[arr <= -99] = np.nan
+                    if len(arr) == n_samples and np.any(np.isfinite(arr)):
+                        prop_arrays[key] = arr
+                    else:
+                        print(f"  Warning: skipping {key} (length mismatch or all NaN)")
+                else:
+                    print(f"  Warning: column for '{key}' not found in dataset")
+
+            # --- Run physics tests ---
+            print(f"\n  Running physics tests on {len(prop_arrays)} properties...")
+            size_results = run_physics_tests(
+                Z, prop_arrays, property_keys=list(prop_arrays.keys()), k=knn_k, cv=cv
+            )
+
+            # Print results
+            print(f"\n  {'Property':<25} {'Lin R²':<12} {'±std':<10} {'Neighbor':<12} {'Dist Corr':<12} {'MKNN prop':<12}")
+            print(f"  {'-'*80}")
+            for prop_key, metrics in size_results.items():
+                if prop_key.startswith("_"):
+                    continue
+                lr2 = metrics.get("linear_probe_r2", float("nan"))
+                lr2_std = metrics.get("linear_probe_r2_std", float("nan"))
+                print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f}")
+
+            # Print mean R² summary
+            summary = size_results.get("_summary", {})
+            r2_mean = summary.get("r2_mean", float("nan"))
+            r2_se = summary.get("r2_se", float("nan"))
+            print(f"  {'-'*80}")
+            print(f"  {'MEAN R²':<25} {r2_mean:<12.4f} ±{r2_se:<9.4f} (SE, {summary.get('n_properties', 0)} properties)")
+
+            size_props = {}
+            for k, v in size_results.items():
+                if k.startswith("_"):
+                    continue
+                prop_dict = {}
+                for mk, mv in v.items():
+                    if isinstance(mv, list):
+                        prop_dict[mk] = mv
+                    elif isinstance(mv, (int, float)) and np.isfinite(mv):
+                        prop_dict[mk] = float(mv)
+                    else:
+                        prop_dict[mk] = None
+                size_props[k] = prop_dict
+
+            all_results["sizes"][size] = {
+                "n_samples": n_samples,
+                "embedding_dim": Z.shape[1],
+                "r2_mean": summary.get("r2_mean"),
+                "r2_se": summary.get("r2_se"),
+                "r2_std": summary.get("r2_std"),
+                "r2_per_property": summary.get("r2_per_property"),
+                "n_properties": summary.get("n_properties"),
+                "properties": size_props,
+            }
+
+            # --- Generate visualisation
+            if prop_arrays:
+                plot_physics_embeddings(
+                    Z, prop_arrays, size_results,
+                    model_alias=model_alias,
+                    size=size,
+                    output_dir=output_dir,
+                    split=split,
+                    method=projection,
+                )
 
     # --- Save results ---
     os.makedirs(output_dir, exist_ok=True)

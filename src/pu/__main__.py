@@ -20,6 +20,7 @@ def main():
     parser_run.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy: 'match' aligns HSC/LegacySurvey to the compared survey's framing using fixed extents; 'fill' uses adaptive per-galaxy Otsu cropping so each galaxy fills the frame. Default: match.")
     parser_run.add_argument("--test", action="store_true", help="Quick test run using only 1000 samples.")
     parser_run.add_argument("--test-10k", action="store_true", help="Test run using only 10000 samples.")
+    parser_run.add_argument("--all-layers", action="store_true", help="Save mean-pooled embeddings from every hidden-state layer (VLMs only).")
 
     # Subparser for running metrics comparisons
     parser_comparisons = subparsers.add_parser("compare", help="Run metrics comparisons on existing embeddings.")
@@ -91,6 +92,10 @@ def main():
     parser_physics.add_argument(
         "--input-dir", default="data",
         help="Directory containing parquet files when using --from-parquet (default: data).",
+    )
+    parser_physics.add_argument(
+        "--all-layers", action="store_true",
+        help="Extract and evaluate every hidden-state layer separately (VLMs only).",
     )
 
     # Subparser for running physics tests across all models
@@ -178,6 +183,7 @@ def main():
             all_metrics=args.all_metrics,
             max_samples=1000 if args.test else 10000 if args.test_10k else None,
             plot_samples=args.test or args.test_10k,
+            all_layers=args.all_layers,
         )
     elif args.command == "compare":
         # Lazy import to avoid loading transformers/torchvision
@@ -270,6 +276,7 @@ def main():
                 cv=args.cv,
                 properties=args.properties,
                 projection=args.projection,
+                all_layers=args.all_layers,
             )
 
         # Print summary across sizes
