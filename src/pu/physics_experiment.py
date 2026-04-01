@@ -652,7 +652,7 @@ def rerun_physics_from_parquet(
             ds = ds.take(max_samples)
 
         prop_arrays: dict[str, list] = {key: [] for key in property_keys}
-        for i, example in enumerate(ds):
+        for i, example in enumerate(tqdm(ds, total=n_samples, desc=f"Loading properties")):
             if i >= n_samples:
                 break
             for key in property_keys:
