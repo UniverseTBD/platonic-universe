@@ -391,6 +391,7 @@ def run_physics_experiment(
     properties: list[str] | None = None,
     output_dir: str = "data",
     projection: str = "pca",
+    pca_components: int | None = None,
 ) -> dict[str, Any]:
     """
     Run physics validation tests for a model against Smith42/galaxies.
@@ -511,7 +512,8 @@ def run_physics_experiment(
         # --- Run physics tests ---
         print(f"\n  Running physics tests on {len(prop_arrays)} properties...")
         size_results = run_physics_tests(
-            Z, prop_arrays, property_keys=list(prop_arrays.keys()), k=knn_k, cv=cv
+            Z, prop_arrays, property_keys=list(prop_arrays.keys()), k=knn_k, cv=cv,
+            pca_components=pca_components,
         )
 
         # Print results
@@ -586,6 +588,7 @@ def rerun_physics_from_parquet(
     properties: list[str] | None = None,
     input_dir: str = "data",
     output_dir: str = "data",
+    pca_components: int | None = None,
 ) -> dict[str, Any]:
     """
     Re-run physics tests from saved parquet embeddings — no inference needed.
@@ -678,6 +681,7 @@ def rerun_physics_from_parquet(
         print(f"\n  Running physics tests on {len(prop_np)} properties...")
         size_results = run_physics_tests(
             Z, prop_np, property_keys=list(prop_np.keys()), k=knn_k, cv=cv,
+            pca_components=pca_components,
         )
 
         # Print results

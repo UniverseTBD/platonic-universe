@@ -17,9 +17,11 @@ import numpy as np
 from numpy.typing import NDArray
 from typing import Any
 
+from sklearn.decomposition import PCA
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.model_selection import cross_val_score
+from sklearn.metrics import r2_score
+from sklearn.model_selection import cross_val_score, KFold
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import pdist
@@ -84,6 +86,7 @@ def linear_probe(
     Z: NDArray[np.floating],
     y: NDArray[np.floating],
     cv: int = 5,
+    pca_components: int | None = None,
 ) -> float:
     """
     Linear probe: cross-validated R² for predicting property *y* from embeddings *Z*.
@@ -94,6 +97,8 @@ def linear_probe(
         Z: (n_samples, d) embedding matrix
         y: (n_samples,) target physical property
         cv: Number of cross-validation folds
+        pca_components: If set, reduce embeddings to this many PCA components
+                        before regression (fit on train fold only to avoid leakage)
 
     Returns:
         Mean cross-validated R² (can be negative if worse than predicting the mean)
@@ -107,12 +112,26 @@ def linear_probe(
     norms = np.linalg.norm(Z, axis=1, keepdims=True)
     norms = np.where(norms < 1e-12, 1.0, norms)
     Z = Z / norms
-    model = LinearRegression()
-    scores = cross_val_score(model, Z, y, cv=cv, scoring="r2")
+
+    if pca_components is not None:
+        n_components = min(pca_components, Z.shape[1], Z.shape[0])
+        kf = KFold(n_splits=cv)
+        scores = []
+        for train_idx, test_idx in kf.split(Z):
+            pca = PCA(n_components=n_components)
+            Z_train = pca.fit_transform(Z[train_idx])
+            Z_test = pca.transform(Z[test_idx])
+            model = LinearRegression()
+            model.fit(Z_train, y[train_idx])
+            scores.append(r2_score(y[test_idx], model.predict(Z_test)))
+    else:
+        model = LinearRegression()
+        scores = cross_val_score(model, Z, y, cv=cv, scoring="r2").tolist()
+
     return {
         "mean": float(np.mean(scores)),
         "std": float(np.std(scores)),
-        "folds": scores.tolist(),
+        "folds": [float(s) for s in scores],
     }
 
 
@@ -418,6 +437,7 @@ def run_physics_tests(
     property_keys: list[str] | None = None,
     k: int = 10,
     cv: int = 5,
+    pca_components: int | None = None,
 ) -> dict[str, dict[str, float]]:
     """
     Run a suite of physics tests for one embedding matrix.
@@ -450,7 +470,7 @@ def run_physics_tests(
             continue
 
         y = properties[key]
-        lp = linear_probe(Z, y, cv=cv)
+        lp = linear_probe(Z, y, cv=cv, pca_components=pca_components)
 
         # linear_probe returns a dict on success, float("nan") on too-few samples
         if isinstance(lp, dict):

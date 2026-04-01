@@ -92,6 +92,11 @@ def main():
         "--input-dir", default="data",
         help="Directory containing parquet files when using --from-parquet (default: data).",
     )
+    parser_physics.add_argument(
+        "--pca-components", type=int, default=None,
+        help="Reduce embeddings to this many PCA components before linear probe "
+             "(default: no PCA). PCA is fit per CV fold to avoid leakage.",
+    )
 
     # Subparser for running physics tests across all models
     parser_physics_all = subparsers.add_parser(
@@ -121,6 +126,11 @@ def main():
     parser_physics_all.add_argument(
         "--input-dir", default="data",
         help="Directory containing parquet files when using --from-parquet (default: data).",
+    )
+    parser_physics_all.add_argument(
+        "--pca-components", type=int, default=None,
+        help="Reduce embeddings to this many PCA components before linear probe "
+             "(default: no PCA). PCA is fit per CV fold to avoid leakage.",
     )
 
     # Subparser for computing dataset percentiles
@@ -257,6 +267,7 @@ def main():
                 cv=args.cv,
                 properties=args.properties,
                 input_dir=args.input_dir,
+                pca_components=args.pca_components,
             )
         else:
             from pu.physics_experiment import run_physics_experiment
@@ -270,6 +281,7 @@ def main():
                 cv=args.cv,
                 properties=args.properties,
                 projection=args.projection,
+                pca_components=args.pca_components,
             )
 
         # Print summary across sizes
@@ -311,6 +323,7 @@ def main():
                     split=args.split,
                     max_samples=max_samples,
                     input_dir=args.input_dir,
+                    pca_components=args.pca_components,
                 )
             else:
                 results = run_physics_experiment(
@@ -318,6 +331,7 @@ def main():
                     split=args.split,
                     max_samples=max_samples,
                     batch_size=args.batch_size,
+                    pca_components=args.pca_components,
                 )
 
             model_entry = {}
