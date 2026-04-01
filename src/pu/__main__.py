@@ -114,6 +114,14 @@ def main():
         "--models", nargs="+", default=None,
         help="Models to test (default: all in PHYSICS_MODEL_MAP).",
     )
+    parser_physics_all.add_argument(
+        "--from-parquet", action="store_true",
+        help="Skip inference and load embeddings from saved parquet files.",
+    )
+    parser_physics_all.add_argument(
+        "--input-dir", default="data",
+        help="Directory containing parquet files when using --from-parquet (default: data).",
+    )
 
     # Subparser for computing dataset percentiles
     parser_percentiles = subparsers.add_parser("percentiles", help="Compute 1st/99th percentiles for dataset bands.")
@@ -281,7 +289,7 @@ def main():
                 print(f"    {prop:<25} linear_probe_r2={lr2_str}")
         print(f"{'='*70}")
     elif args.command == "run-physics-all":
-        from pu.physics_experiment import PHYSICS_MODEL_MAP, run_physics_experiment
+        from pu.physics_experiment import PHYSICS_MODEL_MAP, run_physics_experiment, rerun_physics_from_parquet
 
         max_samples = args.max_samples if args.max_samples != 0 else None
         model_list = args.models or list(PHYSICS_MODEL_MAP.keys())
@@ -297,12 +305,20 @@ def main():
             print(f"# Running physics tests for: {model_alias}")
             print(f"{'#'*70}")
 
-            results = run_physics_experiment(
-                model_alias=model_alias,
-                split=args.split,
-                max_samples=max_samples,
-                batch_size=args.batch_size,
-            )
+            if args.from_parquet:
+                results = rerun_physics_from_parquet(
+                    model_alias=model_alias,
+                    split=args.split,
+                    max_samples=max_samples,
+                    input_dir=args.input_dir,
+                )
+            else:
+                results = run_physics_experiment(
+                    model_alias=model_alias,
+                    split=args.split,
+                    max_samples=max_samples,
+                    batch_size=args.batch_size,
+                )
 
             model_entry = {}
             for size, size_data in results["sizes"].items():
