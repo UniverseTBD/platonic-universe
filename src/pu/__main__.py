@@ -84,6 +84,14 @@ def main():
         "--projection", default="pca", choices=["pca", "umap"],
         help="Dimensionality reduction for visualisation (default: pca).",
     )
+    parser_physics.add_argument(
+        "--from-parquet", action="store_true",
+        help="Skip inference and load embeddings from saved parquet files in data/.",
+    )
+    parser_physics.add_argument(
+        "--input-dir", default="data",
+        help="Directory containing parquet files when using --from-parquet (default: data).",
+    )
 
     # Subparser for running physics tests across all models
     parser_physics_all = subparsers.add_parser(
@@ -229,21 +237,32 @@ def main():
 
         print(json.dumps(results, indent=2, default=str))
     elif args.command == "run-physics":
-        from pu.physics_experiment import run_physics_experiment
-
         max_samples = args.max_samples if args.max_samples != 0 else None
 
-        results = run_physics_experiment(
-            model_alias=args.model,
-            split=args.split,
-            max_samples=max_samples,
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            knn_k=args.knn_k,
-            cv=args.cv,
-            properties=args.properties,
-            projection=args.projection,
-        )
+        if args.from_parquet:
+            from pu.physics_experiment import rerun_physics_from_parquet
+            results = rerun_physics_from_parquet(
+                model_alias=args.model,
+                split=args.split,
+                max_samples=max_samples,
+                knn_k=args.knn_k,
+                cv=args.cv,
+                properties=args.properties,
+                input_dir=args.input_dir,
+            )
+        else:
+            from pu.physics_experiment import run_physics_experiment
+            results = run_physics_experiment(
+                model_alias=args.model,
+                split=args.split,
+                max_samples=max_samples,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                knn_k=args.knn_k,
+                cv=args.cv,
+                properties=args.properties,
+                projection=args.projection,
+            )
 
         # Print summary across sizes
         print(f"\n{'='*70}")

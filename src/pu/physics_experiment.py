@@ -575,3 +575,157 @@ def run_physics_experiment(
     print(f"\nResults saved to {output_path}")
 
     return all_results
+
+
+def rerun_physics_from_parquet(
+    model_alias: str,
+    split: str = "test",
+    max_samples: int | None = None,
+    knn_k: int = 10,
+    cv: int = 5,
+    properties: list[str] | None = None,
+    input_dir: str = "data",
+    output_dir: str = "data",
+) -> dict[str, Any]:
+    """
+    Re-run physics tests from saved parquet embeddings — no inference needed.
+
+    Loads embeddings from parquet files written by ``run_physics_experiment``
+    and re-streams the Smith42/galaxies dataset for property labels only.
+
+    Args:
+        model_alias: Model to test (e.g., 'vit', 'dino')
+        split: Dataset split ('test' or 'validation')
+        max_samples: Must match the value used during the original run
+        knn_k: k for neighbour consistency metric
+        cv: Cross-validation folds for linear probe
+        properties: Which physical properties to test (None = defaults)
+        input_dir: Directory containing the parquet files
+        output_dir: Directory for result JSON files
+
+    Returns:
+        Nested dict with results per model size and property
+    """
+    if model_alias not in PHYSICS_MODEL_MAP:
+        raise ValueError(
+            f"Model '{model_alias}' not in PHYSICS_MODEL_MAP. "
+            f"Available: {list(PHYSICS_MODEL_MAP.keys())}"
+        )
+
+    from datasets import load_dataset
+
+    sizes, _ = PHYSICS_MODEL_MAP[model_alias]
+    property_keys = properties or DEFAULT_PROPERTIES
+
+    all_results: dict[str, Any] = {
+        "model": model_alias,
+        "split": split,
+        "max_samples": max_samples,
+        "property_keys": property_keys,
+        "sizes": {},
+    }
+
+    for size in sizes:
+        parquet_path = os.path.join(
+            input_dir, f"physics_{model_alias}_{size}_{split}.parquet"
+        )
+        if not os.path.exists(parquet_path):
+            print(f"  Skipping {model_alias}-{size}: {parquet_path} not found")
+            continue
+
+        print(f"\n{'='*60}")
+        print(f"Physics rerun: {model_alias} {size}")
+        print(f"{'='*60}")
+
+        # Load embeddings from parquet
+        df = pl.read_parquet(parquet_path)
+        emb_col = f"{model_alias}_{size}_galaxies"
+        Z = np.stack(df[emb_col].to_list())
+        n_samples = len(Z)
+        print(f"  Loaded {n_samples} embeddings, shape: {Z.shape}")
+
+        # Stream dataset for property labels (no inference)
+        ds = load_dataset(
+            "Smith42/galaxies", revision="v2.0", split=split, streaming=True,
+        )
+        if max_samples is not None:
+            ds = ds.take(max_samples)
+
+        prop_arrays: dict[str, list] = {key: [] for key in property_keys}
+        for i, example in enumerate(ds):
+            if i >= n_samples:
+                break
+            for key in property_keys:
+                col_name = ALL_PROPERTIES.get(key, key)
+                val = example.get(col_name)
+                prop_arrays[key].append(float("nan") if val is None else val)
+
+        # Convert to numpy and validate
+        prop_np: dict[str, np.ndarray] = {}
+        for key, vals in prop_arrays.items():
+            if len(vals) == n_samples:
+                arr = np.array(vals, dtype=np.float64)
+                if key in ("sfr", "ssfr"):
+                    arr[arr <= -99] = np.nan
+                if np.any(np.isfinite(arr)):
+                    prop_np[key] = arr
+                else:
+                    print(f"  Warning: skipping {key} (all NaN)")
+            else:
+                print(f"  Warning: skipping {key} (got {len(vals)} vs {n_samples} embeddings)")
+
+        # Run physics tests
+        print(f"\n  Running physics tests on {len(prop_np)} properties...")
+        size_results = run_physics_tests(
+            Z, prop_np, property_keys=list(prop_np.keys()), k=knn_k, cv=cv,
+        )
+
+        # Print results
+        print(f"\n  {'Property':<25} {'Lin R²':<12} {'±std':<10}")
+        print(f"  {'-'*50}")
+        for prop_key, metrics in size_results.items():
+            if prop_key.startswith("_"):
+                continue
+            lr2 = metrics.get("linear_probe_r2", float("nan"))
+            lr2_std = metrics.get("linear_probe_r2_std", float("nan"))
+            print(f"  {prop_key:<25} {lr2:<12.4f} {lr2_std:<10.4f}")
+
+        summary = size_results.get("_summary", {})
+        r2_mean = summary.get("r2_mean", float("nan"))
+        r2_se = summary.get("r2_se", float("nan"))
+        print(f"  {'-'*50}")
+        print(f"  {'MEAN R²':<25} {r2_mean:<12.4f} ±{r2_se:<9.4f} (SE, {summary.get('n_properties', 0)} properties)")
+
+        size_props = {}
+        for k, v in size_results.items():
+            if k.startswith("_"):
+                continue
+            prop_dict = {}
+            for mk, mv in v.items():
+                if isinstance(mv, list):
+                    prop_dict[mk] = mv
+                elif isinstance(mv, (int, float)) and np.isfinite(mv):
+                    prop_dict[mk] = float(mv)
+                else:
+                    prop_dict[mk] = None
+            size_props[k] = prop_dict
+
+        all_results["sizes"][size] = {
+            "n_samples": n_samples,
+            "embedding_dim": Z.shape[1],
+            "r2_mean": summary.get("r2_mean"),
+            "r2_se": summary.get("r2_se"),
+            "r2_std": summary.get("r2_std"),
+            "r2_per_property": summary.get("r2_per_property"),
+            "n_properties": summary.get("n_properties"),
+            "properties": size_props,
+        }
+
+    # Save results
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"physics_{model_alias}_{split}.json")
+    with open(output_path, "w") as f:
+        json.dump(all_results, f, indent=2)
+    print(f"\nResults saved to {output_path}")
+
+    return all_results

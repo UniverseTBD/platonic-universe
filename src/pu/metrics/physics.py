@@ -101,6 +101,12 @@ def linear_probe(
     Z, y = _clean_inputs(Z, y)
     if len(Z) < cv:
         return float("nan")
+    # L2-normalise so that models with different embedding scales are
+    # compared fairly — without this, large models with big norms
+    # destabilise the unconstrained linear regression.
+    norms = np.linalg.norm(Z, axis=1, keepdims=True)
+    norms = np.where(norms < 1e-12, 1.0, norms)
+    Z = Z / norms
     model = LinearRegression()
     scores = cross_val_score(model, Z, y, cv=cv, scoring="r2")
     return {

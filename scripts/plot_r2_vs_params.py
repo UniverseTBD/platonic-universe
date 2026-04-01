@@ -14,6 +14,8 @@ FIGS_DIR = Path(__file__).resolve().parent.parent / "figs"
 
 # Parameter counts from HuggingFace Hub model_info().safetensors.total
 # For models with text+vision (CLIP), we use *vision encoder only* counts.
+# For VLMs (PaliGemma, LLaVA), we use total model params since the vision
+# backbone is shared across sizes and would collapse to single points.
 # For AstroPT, sizes are in the name (15M, 95M, 850M).
 PARAM_COUNTS = {
     "vit": {
@@ -59,6 +61,15 @@ PARAM_COUNTS = {
         "095M": 95_000_000,
         "850M": 850_000_000,
     },
+    "paligemma": {
+        "3b": 3_032_081_408,
+        "10b": 9_670_746_112,
+        "28b": 27_227_128_832,
+    },
+    "llava_15": {
+        "7b": 7_062_898_688,
+        "13b": 13_015_864_320,
+    },
 }
 
 # Display names and colors for each family
@@ -70,7 +81,9 @@ FAMILY_STYLE = {
     "dinov3":   {"label": "DINOv3",   "color": "#d62728", "marker": "D"},
     "ijepa":    {"label": "I-JEPA",   "color": "#9467bd", "marker": "v"},
     "vjepa":    {"label": "V-JEPA",   "color": "#8c564b", "marker": "P"},
-    "astropt":  {"label": "AstroPT",  "color": "#e377c2", "marker": "*"},
+    "astropt":    {"label": "AstroPT",      "color": "#e377c2", "marker": "*"},
+    "paligemma": {"label": "PaliGemma 2",  "color": "#17becf", "marker": "h"},
+    "llava_15":  {"label": "LLaVA 1.5",    "color": "#7f7f7f", "marker": "X"},
 }
 
 
