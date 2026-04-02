@@ -232,8 +232,8 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         Z1 = zs[modes[0]].cpu().numpy()
         Z2 = zs[modes[1]].cpu().numpy()
 
-        temp1 = tempfile.NamedTemporaryFile(delete=False)
-        temp2 = tempfile.NamedTemporaryFile(delete=False)
+        temp1 = tempfile.NamedTemporaryFile(delete=False, dir="data")
+        temp2 = tempfile.NamedTemporaryFile(delete=False, dir="data")
         temp1.close(); temp2.close()
 
         # build kernels
@@ -245,6 +245,9 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
 
         # use kernel dimensions (square)
         cka_mmap_score = compute_cka_mmap(str(temp1.name), str(temp2.name), k1.shape[0], k1.shape[1])
+
+        os.unlink(temp1.name)
+        os.unlink(temp2.name)
 
         if all_metrics:
             # Use the compare() function to compute all metrics
