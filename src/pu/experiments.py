@@ -123,11 +123,10 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
             ["polymathic-ai/specformer"],
         ),
         "aion": (
-            ["base", "large", "xlarge"],
+            ["base", "large"],
             [
                 "polymathic-ai/aion-base",
                 "polymathic-ai/aion-large",
-                "polymathic-ai/aion-xlarge",
             ],
         ),
         "specclip": (
