@@ -38,11 +38,14 @@ class AIONAdapter(ModelAdapter):
         self.model = None
         self.codec_manager = None
 
-    def load(self, compile_model: bool = False) -> None:
+    def load(self, compile_model: bool = False, half: bool = False) -> None:
         from aion import AION
         from aion.codecs import CodecManager
 
-        self.model = AION.from_pretrained(self.model_name).to("cuda").eval()
+        self.model = AION.from_pretrained(self.model_name)
+        if half:
+            self.model = self.model.half()
+        self.model = self.model.to("cuda").eval()
         self.codec_manager = CodecManager(device="cuda")
 
         if compile_model:
