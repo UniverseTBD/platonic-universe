@@ -83,5 +83,23 @@ class AIONAdapter(ModelAdapter):
                 embedding = embeddings.mean(dim=1)
         return embedding.float().detach()
 
+    def embed_layerwise(self, batch: Dict[str, Any], mode: str):
+        """Extract per-layer embeddings from AION encoder blocks."""
+        with torch.no_grad():
+            tokens = self._tokenize(batch)
+            encoder_tokens, encoder_emb, encoder_mask, _ = (
+                self.model.embed_inputs(tokens, num_encoder_tokens=273)
+            )
+            x = encoder_tokens + encoder_emb
+
+            layer_embeddings = [x.mean(dim=1).float().cpu()]
+            for block in self.model.encoder:
+                x = block(x, mask=encoder_mask)
+                layer_embeddings.append(x.mean(dim=1).float().cpu())
+            x = self.model.encoder_norm(x)
+            layer_embeddings.append(x.mean(dim=1).float().cpu())
+
+            return layer_embeddings
+
 
 register_adapter("aion", AIONAdapter)

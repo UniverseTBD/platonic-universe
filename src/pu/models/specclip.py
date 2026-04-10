@@ -85,5 +85,15 @@ class SpecCLIPAdapter(ModelAdapter):
                 embedding = output["embedding"][:, 1:, :].mean(dim=1)
         return embedding.float().detach()
 
+    def embed_layerwise(self, batch: Dict[str, Any], mode: str):
+        """Extract per-layer embeddings, mean-pooled excluding stats token."""
+        spectra = batch["spectra"].to("cuda")
+        with torch.no_grad():
+            output = self.model.forward_layerwise(spectra)
+            return [
+                emb[:, 1:, :].mean(dim=1).float().cpu()
+                for emb in output["layer_embeddings"]
+            ]
+
 
 register_adapter("specclip", SpecCLIPAdapter)
