@@ -18,12 +18,29 @@ _SPECTRA_KEY_MAP = {
     "aion": ("flux", "ivar", "mask", "wavelength"),
 }
 
-# Sizes to use for each model in layerwise analysis
-_DEFAULT_SIZE = {
-    "specformer": ("43M", "polymathic-ai/specformer"),
-    "specclip": ("43M", "astroshawn/SpecCLIP"),
-    "aion": ("base", "polymathic-ai/aion-base"),
+# Size -> model name mapping per alias
+_SIZE_MAP = {
+    "specformer": {"43M": "polymathic-ai/specformer"},
+    "specclip": {"43M": "astroshawn/SpecCLIP"},
+    "aion": {
+        "base": "polymathic-ai/aion-base",
+        "large": "polymathic-ai/aion-large",
+        "xlarge": "polymathic-ai/aion-xlarge",
+    },
 }
+
+_DEFAULT_SIZES = {
+    "specformer": "43M",
+    "specclip": "43M",
+    "aion": "base",
+}
+
+
+def _resolve_model(alias, size=None):
+    """Resolve alias + optional size to (size, model_name)."""
+    if size is None:
+        size = _DEFAULT_SIZES[alias]
+    return size, _SIZE_MAP[alias][size]
 
 
 class DualPreprocessor:
@@ -58,6 +75,8 @@ def run_layerwise_analysis(
     knn_k=10,
     max_samples=None,
     output_dir="data",
+    size_a=None,
+    size_b=None,
 ):
     """Compute layer-by-layer CKA and MKNN between two spectral models.
 
@@ -67,8 +86,8 @@ def run_layerwise_analysis(
     """
     hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
 
-    size_a, model_name_a = _DEFAULT_SIZE[model_a_alias]
-    size_b, model_name_b = _DEFAULT_SIZE[model_b_alias]
+    size_a, model_name_a = _resolve_model(model_a_alias, size_a)
+    size_b, model_name_b = _resolve_model(model_b_alias, size_b)
 
     # Load both adapters
     adapter_a_cls = get_adapter(model_a_alias)
@@ -149,18 +168,20 @@ def run_layerwise_analysis(
 
     # Save results
     os.makedirs(output_dir, exist_ok=True)
-    prefix = f"{model_a_alias}_vs_{model_b_alias}_{comp_mode}"
+    label_a = f"{model_a_alias}_{size_a}"
+    label_b = f"{model_b_alias}_{size_b}"
+    prefix = f"{label_a}_vs_{label_b}_{comp_mode}"
 
     np.save(os.path.join(output_dir, f"{prefix}_cka.npy"), cka_matrix)
     np.save(os.path.join(output_dir, f"{prefix}_mknn.npy"), mknn_matrix)
 
     # Plot heatmaps
     plot_layerwise_heatmap(
-        cka_matrix, "CKA", model_a_alias, model_b_alias,
+        cka_matrix, "CKA", label_a, label_b,
         os.path.join(output_dir, f"{prefix}_cka.png"),
     )
     plot_layerwise_heatmap(
-        mknn_matrix, "MKNN", model_a_alias, model_b_alias,
+        mknn_matrix, "MKNN", label_a, label_b,
         os.path.join(output_dir, f"{prefix}_mknn.png"),
     )
 

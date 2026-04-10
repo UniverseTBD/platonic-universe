@@ -56,6 +56,8 @@ def main():
     parser_layerwise.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
     parser_layerwise.add_argument("--knn-k", type=int, default=10, help="K value for MKNN calculation.")
     parser_layerwise.add_argument("--max-samples", type=int, default=None, help="Limit dataset to N samples.")
+    parser_layerwise.add_argument("--size-a", default=None, help="Size for model A (e.g., 'base', 'large').")
+    parser_layerwise.add_argument("--size-b", default=None, help="Size for model B (e.g., 'base', 'large').")
     parser_layerwise.add_argument("--output-dir", default="data", help="Output directory (default: data).")
 
     # Subparser for benchmarking performance optimizations
@@ -184,6 +186,8 @@ def main():
             knn_k=args.knn_k,
             max_samples=args.max_samples,
             output_dir=args.output_dir,
+            size_a=args.size_a,
+            size_b=args.size_b,
         )
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
