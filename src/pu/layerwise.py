@@ -138,8 +138,13 @@ def run_layerwise_analysis(
     with tqdm(total=total, desc="Computing metrics") as pbar:
         for i in range(n_a):
             for j in range(n_b):
-                cka_matrix[i, j] = cka(all_layers_a[i], all_layers_b[j])
-                mknn_matrix[i, j] = mknn(all_layers_a[i], all_layers_b[j], k=knn_k)
+                Za, Zb = all_layers_a[i], all_layers_b[j]
+                if np.isnan(Za).any() or np.isnan(Zb).any():
+                    cka_matrix[i, j] = np.nan
+                    mknn_matrix[i, j] = np.nan
+                else:
+                    cka_matrix[i, j] = cka(Za, Zb)
+                    mknn_matrix[i, j] = mknn(Za, Zb, k=knn_k)
                 pbar.update(1)
 
     # Save results
