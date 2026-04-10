@@ -31,7 +31,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
     """
 
     comp_mode = mode
-    is_spectral_model = model_alias == "specformer"
+    is_spectral_model = model_alias in ("specformer", "aion", "specclip")
     if is_spectral_model:
         # Spectral-only models process spectra directly; no HSC image pairing
         modes = [comp_mode]
@@ -121,6 +121,18 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         "specformer": (
             ["43M"],
             ["polymathic-ai/specformer"],
+        ),
+        "aion": (
+            ["base", "large", "xlarge"],
+            [
+                "polymathic-ai/aion-base",
+                "polymathic-ai/aion-large",
+                "polymathic-ai/aion-xlarge",
+            ],
+        ),
+        "specclip": (
+            ["43M"],
+            ["astroshawn/SpecCLIP"],
         ),
     }
 
