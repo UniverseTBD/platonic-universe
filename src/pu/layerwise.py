@@ -189,6 +189,101 @@ def run_layerwise_analysis(
     return cka_matrix, mknn_matrix
 
 
+def _embed_single_model(alias, size, comp_mode, hf_ds, batch_size, num_workers, max_samples):
+    """Load one model, extract all layer embeddings, then free GPU memory."""
+    size, model_name = _resolve_model(alias, size)
+    adapter_cls = get_adapter(alias)
+    adapter = adapter_cls(model_name, size, alias=alias)
+    adapter.load()
+
+    preproc = adapter.get_preprocessor([comp_mode])
+    ds_alias = f"{comp_mode}_spectra"
+    dataset_adapter_cls = get_dataset_adapter(ds_alias)
+    dataset_adapter = dataset_adapter_cls(hf_ds, comp_mode)
+    dataset_adapter.load()
+    ds = dataset_adapter.prepare(preproc, [comp_mode], lambda idx: True)
+    if max_samples is not None:
+        ds = ds.take(max_samples)
+
+    keys = _SPECTRA_KEY_MAP[alias]
+    dl = iter(DataLoader(ds, batch_size=batch_size, num_workers=num_workers))
+    all_layers = None
+
+    with torch.no_grad():
+        for batch in tqdm(dl, desc=f"Embedding {alias}_{size}"):
+            layers = adapter.embed_layerwise(batch, comp_mode)
+            if all_layers is None:
+                all_layers = [[] for _ in layers]
+            for i, emb in enumerate(layers):
+                all_layers[i].append(emb)
+
+    # Free GPU memory
+    del adapter
+    torch.cuda.empty_cache()
+
+    return size, [torch.cat(embs).numpy() for embs in all_layers]
+
+
+def run_layerwise_sequential(
+    model_a_alias, model_b_alias, comp_mode="desi",
+    batch_size=128, num_workers=0, knn_k=10,
+    max_samples=None, output_dir="data",
+    size_a=None, size_b=None,
+):
+    """Like run_layerwise_analysis but loads models one at a time.
+
+    Use this when both models can't fit on the GPU simultaneously (e.g.,
+    AION-large + AION-xlarge).  The dataset is streamed twice.
+    """
+    hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
+
+    size_a, all_layers_a = _embed_single_model(
+        model_a_alias, size_a, comp_mode, hf_ds, batch_size, num_workers, max_samples
+    )
+    size_b, all_layers_b = _embed_single_model(
+        model_b_alias, size_b, comp_mode, hf_ds, batch_size, num_workers, max_samples
+    )
+
+    n_a, n_b = len(all_layers_a), len(all_layers_b)
+    n_samples = all_layers_a[0].shape[0]
+    label_a = f"{model_a_alias}_{size_a}"
+    label_b = f"{model_b_alias}_{size_b}"
+    print(f"\n{n_samples} samples, {n_a} layers ({label_a}), {n_b} layers ({label_b})")
+
+    cka_matrix = np.zeros((n_a, n_b))
+    mknn_matrix = np.zeros((n_a, n_b))
+
+    with tqdm(total=n_a * n_b, desc="Computing metrics") as pbar:
+        for i in range(n_a):
+            for j in range(n_b):
+                Za, Zb = all_layers_a[i], all_layers_b[j]
+                if np.isnan(Za).any() or np.isnan(Zb).any():
+                    cka_matrix[i, j] = np.nan
+                    mknn_matrix[i, j] = np.nan
+                else:
+                    cka_matrix[i, j] = cka(Za, Zb)
+                    mknn_matrix[i, j] = mknn(Za, Zb, k=knn_k)
+                pbar.update(1)
+
+    os.makedirs(output_dir, exist_ok=True)
+    prefix = f"{label_a}_vs_{label_b}_{comp_mode}"
+
+    np.save(os.path.join(output_dir, f"{prefix}_cka.npy"), cka_matrix)
+    np.save(os.path.join(output_dir, f"{prefix}_mknn.npy"), mknn_matrix)
+
+    plot_layerwise_heatmap(
+        cka_matrix, "CKA", label_a, label_b,
+        os.path.join(output_dir, f"{prefix}_cka.png"),
+    )
+    plot_layerwise_heatmap(
+        mknn_matrix, "MKNN", label_a, label_b,
+        os.path.join(output_dir, f"{prefix}_mknn.png"),
+    )
+
+    print(f"\nSaved to {output_dir}/{prefix}_*.{{npy,png}}")
+    return cka_matrix, mknn_matrix
+
+
 def plot_layerwise_heatmap(scores, metric_name, model_a_name, model_b_name, output_path):
     """Plot a layer-by-layer metric heatmap."""
     import matplotlib
