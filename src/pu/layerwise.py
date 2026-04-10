@@ -66,6 +66,14 @@ def _make_batch(raw_batch, prefix, keys):
     return {k: raw_batch[f"{prefix}_{k}"] for k in keys}
 
 
+def _load_adapter(adapter, half):
+    """Load adapter, passing half=True for AION models."""
+    try:
+        adapter.load(half=half)
+    except TypeError:
+        adapter.load()
+
+
 def run_layerwise_analysis(
     model_a_alias,
     model_b_alias,
@@ -77,6 +85,7 @@ def run_layerwise_analysis(
     output_dir="data",
     size_a=None,
     size_b=None,
+    half=False,
 ):
     """Compute layer-by-layer CKA and MKNN between two spectral models.
 
@@ -92,11 +101,11 @@ def run_layerwise_analysis(
     # Load both adapters
     adapter_a_cls = get_adapter(model_a_alias)
     adapter_a = adapter_a_cls(model_name_a, size_a, alias=model_a_alias)
-    adapter_a.load()
+    _load_adapter(adapter_a, half)
 
     adapter_b_cls = get_adapter(model_b_alias)
     adapter_b = adapter_b_cls(model_name_b, size_b, alias=model_b_alias)
-    adapter_b.load()
+    _load_adapter(adapter_b, half)
 
     # Build dual preprocessor
     modes = [comp_mode]
@@ -189,12 +198,12 @@ def run_layerwise_analysis(
     return cka_matrix, mknn_matrix
 
 
-def _embed_single_model(alias, size, comp_mode, hf_ds, batch_size, num_workers, max_samples):
+def _embed_single_model(alias, size, comp_mode, hf_ds, batch_size, num_workers, max_samples, half=False):
     """Load one model, extract all layer embeddings, then free GPU memory."""
     size, model_name = _resolve_model(alias, size)
     adapter_cls = get_adapter(alias)
     adapter = adapter_cls(model_name, size, alias=alias)
-    adapter.load()
+    _load_adapter(adapter, half)
 
     preproc = adapter.get_preprocessor([comp_mode])
     ds_alias = f"{comp_mode}_spectra"
@@ -228,7 +237,7 @@ def run_layerwise_sequential(
     model_a_alias, model_b_alias, comp_mode="desi",
     batch_size=128, num_workers=0, knn_k=10,
     max_samples=None, output_dir="data",
-    size_a=None, size_b=None,
+    size_a=None, size_b=None, half=False,
 ):
     """Like run_layerwise_analysis but loads models one at a time.
 
@@ -238,10 +247,10 @@ def run_layerwise_sequential(
     hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
 
     size_a, all_layers_a = _embed_single_model(
-        model_a_alias, size_a, comp_mode, hf_ds, batch_size, num_workers, max_samples
+        model_a_alias, size_a, comp_mode, hf_ds, batch_size, num_workers, max_samples, half
     )
     size_b, all_layers_b = _embed_single_model(
-        model_b_alias, size_b, comp_mode, hf_ds, batch_size, num_workers, max_samples
+        model_b_alias, size_b, comp_mode, hf_ds, batch_size, num_workers, max_samples, half
     )
 
     n_a, n_b = len(all_layers_a), len(all_layers_b)

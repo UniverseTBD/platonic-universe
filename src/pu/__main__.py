@@ -59,6 +59,7 @@ def main():
     parser_layerwise.add_argument("--size-a", default=None, help="Size for model A (e.g., 'base', 'large').")
     parser_layerwise.add_argument("--size-b", default=None, help="Size for model B (e.g., 'base', 'large').")
     parser_layerwise.add_argument("--sequential", action="store_true", help="Load models one at a time (for large model pairs that don't fit together).")
+    parser_layerwise.add_argument("--half", action="store_true", help="Load models in float16 (for large models like AION-xlarge).")
     parser_layerwise.add_argument("--output-dir", default="data", help="Output directory (default: data).")
 
     # Subparser for benchmarking performance optimizations
@@ -192,6 +193,7 @@ def main():
             output_dir=args.output_dir,
             size_a=args.size_a,
             size_b=args.size_b,
+            half=args.half,
         )
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
