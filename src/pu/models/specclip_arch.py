@@ -4,6 +4,10 @@ Bundled from SpecCLIP (https://github.com/Xiaosheng-Zhao/SpecCLIP) to avoid
 a transitive dependency on Lightning.  Only the modules required for
 forward-pass inference are included.
 
+The transformer block naming matches the SpecCLIP checkpoint convention
+(ln1/ln2, q_proj/kv_proj/out_proj, Sequential MLP), which differs from
+the AstroCLIP naming used in specformer_arch.py.
+
 Original authors: Xiaosheng Zhao et al.
 License: MIT
 """
@@ -16,7 +20,47 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from pu.models.specformer_arch import LayerNorm, TransformerBlock, _init_by_depth
+
+class FlexibleAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout=0.0, bias=True):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.dropout = dropout
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.kv_proj = nn.Linear(embed_dim, 2 * embed_dim, bias=bias)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+
+    def forward(self, x):
+        B, T, C = x.shape
+        q = self.q_proj(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        kv = self.kv_proj(x).view(B, T, 2, self.num_heads, self.head_dim)
+        k = kv[:, :, 0].transpose(1, 2)
+        v = kv[:, :, 1].transpose(1, 2)
+        dropout_p = self.dropout if self.training else 0.0
+        y = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        return self.out_proj(y)
+
+
+class SpecCLIPBlock(nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout=0.0, bias=True):
+        super().__init__()
+        self.ln1 = nn.LayerNorm(embed_dim)
+        self.attention = FlexibleAttention(embed_dim, num_heads, dropout=dropout, bias=bias)
+        self.ln2 = nn.LayerNorm(embed_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, 4 * embed_dim),
+            nn.GELU(),
+            nn.Linear(4 * embed_dim, embed_dim),
+        )
+
+    def forward(self, x):
+        x = x + self.attention(self.ln1(x))
+        x = x + self.mlp(self.ln2(x))
+        return x
 
 
 class SpecCLIPEncoder(nn.Module):
@@ -25,10 +69,6 @@ class SpecCLIPEncoder(nn.Module):
     Architecture and weight-loading are compatible with the original
     SpecCLIP ``SpecFormerControl20_wstd`` Lightning module so that
     checkpoints can be loaded directly.
-
-    Key differences from AstroCLIP SpecFormer:
-    - Padding: ``pad=(1, 0, 1, 0)`` → tokens have ``section_length + 1`` features
-    - Stats token: stores ``log10(std)`` at position ``[0, 0]`` (no mean)
     """
 
     def __init__(
@@ -50,7 +90,6 @@ class SpecCLIPEncoder(nn.Module):
         self.input_dim = input_dim
         self.embed_dim = embed_dim
         self.num_layers = num_layers
-        self.num_heads = num_heads
         self.max_len = max_len
         self.slice_section_length = slice_section_length
         self.slice_overlap = slice_overlap
@@ -60,20 +99,19 @@ class SpecCLIPEncoder(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(
-                    embedding_dim=embed_dim,
+                SpecCLIPBlock(
+                    embed_dim=embed_dim,
                     num_heads=num_heads,
-                    causal=False,
                     dropout=dropout,
                     bias=True,
                 )
                 for _ in range(num_layers)
             ]
         )
-        self.final_layernorm = LayerNorm(embed_dim, bias=True)
+        self.final_layernorm = nn.LayerNorm(embed_dim)
         self.head = nn.Linear(embed_dim, input_dim, bias=True)
 
-        self._reset_parameters_datapt()
+        self._reset_parameters_datapt(num_heads)
 
     def forward(self, x: Tensor):
         x = self.preprocess(x)
@@ -118,9 +156,7 @@ class SpecCLIPEncoder(nn.Module):
             sections.pop(-1)
         return torch.cat(sections, 1)
 
-    def _reset_parameters_datapt(self):
+    def _reset_parameters_datapt(self, num_heads):
         for emb in [self.data_embed, self.position_embed]:
             std = 1 / math.sqrt(self.embed_dim)
             nn.init.trunc_normal_(emb.weight, std=std, a=-3 * std, b=3 * std)
-        self.blocks.apply(lambda m: _init_by_depth(m, self.num_layers))
-        self.head.apply(lambda m: _init_by_depth(m, 1 / 2))
