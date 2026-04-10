@@ -47,6 +47,17 @@ def main():
     parser_percentiles.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy (default: match).")
     parser_percentiles.add_argument("--output", type=str, default="data/percentiles.json", help="Output JSON path (default: data/percentiles.json).")
 
+    # Subparser for layer-wise analysis between spectral models
+    parser_layerwise = subparsers.add_parser("layerwise", help="Layer-by-layer CKA/MKNN analysis between spectral models.")
+    parser_layerwise.add_argument("--model-a", required=True, help="First model alias (e.g., 'specformer').")
+    parser_layerwise.add_argument("--model-b", required=True, help="Second model alias (e.g., 'aion').")
+    parser_layerwise.add_argument("--mode", default="desi", help="Spectral mode (default: desi).")
+    parser_layerwise.add_argument("--batch-size", type=int, default=128, help="Batch size for processing.")
+    parser_layerwise.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
+    parser_layerwise.add_argument("--knn-k", type=int, default=10, help="K value for MKNN calculation.")
+    parser_layerwise.add_argument("--max-samples", type=int, default=None, help="Limit dataset to N samples.")
+    parser_layerwise.add_argument("--output-dir", default="data", help="Output directory (default: data).")
+
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
     parser_benchmark.add_argument("--model", required=True, help="Model to benchmark (e.g., 'vit', 'dino').")
@@ -161,6 +172,18 @@ def main():
             max_samples=args.max_samples,
             resize_mode=args.resize_mode,
             output_path=args.output,
+        )
+    elif args.command == "layerwise":
+        from pu.layerwise import run_layerwise_analysis
+        run_layerwise_analysis(
+            model_a_alias=args.model_a,
+            model_b_alias=args.model_b,
+            comp_mode=args.mode,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            knn_k=args.knn_k,
+            max_samples=args.max_samples,
+            output_dir=args.output_dir,
         )
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
