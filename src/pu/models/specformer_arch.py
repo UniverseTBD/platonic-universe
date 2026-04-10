@@ -204,6 +204,24 @@ class SpecFormer(nn.Module):
         reconstructions = self.head(x)
         return {"reconstructions": reconstructions, "embedding": x}
 
+    def forward_layerwise(self, x: Tensor):
+        """Forward pass collecting per-layer representations."""
+        x = self.preprocess(x)
+        t = x.shape[1]
+        pos = torch.arange(0, t, dtype=torch.long, device=x.device)
+        data_emb = self.data_embed(x)
+        pos_emb = self.position_embed(pos)
+        x = self.dropout(data_emb + pos_emb)
+
+        layer_embeddings = [x]
+        for block in self.blocks:
+            x = block(x)
+            layer_embeddings.append(x)
+        x = self.final_layernorm(x)
+        layer_embeddings.append(x)
+
+        return {"layer_embeddings": layer_embeddings, "embedding": x}
+
     # ---- preprocessing ---------------------------------------------------
 
     def preprocess(self, x):
