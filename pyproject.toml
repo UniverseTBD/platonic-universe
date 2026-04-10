@@ -21,6 +21,7 @@ dependencies = [
     "pytest>=8.0.0",
     "calibrated-similarity>=0.1.1",
     "huggingface-hub>=0.20.0",
+    "matplotlib>=3.8.0",
 ]
 
 [project.optional-dependencies]
