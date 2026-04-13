@@ -39,8 +39,9 @@ def plot_sample_galaxies(hf_ds, modes, comp_mode, resize=True, resize_mode="matc
         axes = [axes]
 
     for col, sample in enumerate(samples):
-        # HSC row
-        hsc_img = flux_to_pil(sample["hsc_image"], "hsc", modes, resize=resize, resize_mode=resize_mode)
+        # HSC row — raw dataset uses "image", adapters rename to "hsc_image"
+        hsc_key = "hsc_image" if "hsc_image" in sample else "image"
+        hsc_img = flux_to_pil(sample[hsc_key], "hsc", modes, resize=resize, resize_mode=resize_mode)
         axes[0][col].imshow(hsc_img)
         axes[0][col].axis("off")
         if col == 0:
