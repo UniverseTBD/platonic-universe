@@ -67,17 +67,37 @@ class SAM2Adapter(ModelAdapter):
     def supports_layerwise(self) -> bool:
         return True
 
+    def get_layer_names(self) -> list:
+        names = super().get_layer_names()
+        names.append("embed_for_mode_output")
+        return names
+
     def embed_all_layers_for_mode(
         self,
         batch: Dict[str, Any],
         mode: str,
     ) -> Dict[str, torch.Tensor]:
         inputs = batch[f"{mode}"].to("cuda")
+        model_output = {}
 
         def forward_fn():
-            self.model.forward_image(inputs)
+            backbone_out = self.model.forward_image(inputs)
+            # Reproduce embed_for_mode's output exactly
+            _, vision_feats, _, _ = self.model._prepare_backbone_features(backbone_out)
+            if getattr(self.model, "directly_add_no_mem_embed", False):
+                vision_feats[-1] = vision_feats[-1] + self.model.no_mem_embed
+            B = inputs.shape[0]
+            bb_feat_sizes = [(256, 256), (128, 128), (64, 64)]
+            feats = [
+                feat.permute(1, 2, 0).view(B, -1, *feat_size)
+                for feat, feat_size in zip(vision_feats[::-1], bb_feat_sizes[::-1])
+            ][::-1]
+            model_output["emb"] = feats[-1].detach().amax(dim=(2, 3))
 
-        return self._capture_all_leaf_outputs(forward_fn)
+        results = self._capture_all_leaf_outputs(forward_fn)
+        if "emb" in model_output:
+            results["embed_for_mode_output"] = model_output["emb"].float()
+        return results
 
 
 if SAM2_AVAILABLE:

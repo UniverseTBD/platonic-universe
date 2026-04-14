@@ -35,6 +35,11 @@ class AstroptAdapter(ModelAdapter):
     def supports_layerwise(self) -> bool:
         return True
 
+    def get_layer_names(self) -> list:
+        names = super().get_layer_names()
+        names.append("embed_for_mode_output")
+        return names
+
     def embed_all_layers_for_mode(
         self,
         batch: Dict[str, Any],
@@ -44,11 +49,17 @@ class AstroptAdapter(ModelAdapter):
             "images": batch[f"{mode}_images"].to("cuda"),
             "images_positions": batch[f"{mode}_positions"].to("cuda"),
         }
+        model_output = {}
 
         def forward_fn():
-            self.model.generate_embeddings(inputs)
+            out = self.model.generate_embeddings(inputs)
+            model_output["emb"] = out["images"].detach()
 
-        return self._capture_all_leaf_outputs(forward_fn)
+        results = self._capture_all_leaf_outputs(forward_fn)
+        # Exact match with embed_for_mode
+        if "emb" in model_output:
+            results["embed_for_mode_output"] = model_output["emb"].float()
+        return results
 
 
 register_adapter("astropt", AstroptAdapter)
