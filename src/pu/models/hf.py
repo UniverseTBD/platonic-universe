@@ -84,6 +84,22 @@ class HFAdapter(ModelAdapter):
     def supports_layerwise(self) -> bool:
         return True
 
+    def _model_pool(self, t: torch.Tensor) -> torch.Tensor:
+        """Pool using the same strategy as embed_for_mode."""
+        if t.dim() == 4:
+            return t.mean(dim=(2, 3))
+        elif t.dim() == 3:
+            if self.alias in ("vit", "vit-mae"):
+                return t[:, 1:].mean(dim=1)
+            elif self.alias in ("dino", "dinov3"):
+                return t[:, 0]
+            else:
+                return t.mean(dim=1)
+        elif t.dim() == 2:
+            return t
+        else:
+            return t.reshape(t.shape[0], -1)
+
     def embed_all_layers_for_mode(
         self,
         batch: Dict[str, Any],
@@ -91,12 +107,31 @@ class HFAdapter(ModelAdapter):
     ) -> Dict[str, torch.Tensor]:
         inputs = batch[f"{mode}"].to("cuda")
         hookable = self._get_hookable_model()
+        model_output = {}
 
         def forward_fn():
             with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
-                hookable(inputs)
+                out = hookable(inputs)
+            # Capture last_hidden_state — this includes post-residual states
+            # that no leaf module produces (residual add is in block forward, not a module)
+            if hasattr(out, 'last_hidden_state') and out.last_hidden_state is not None:
+                model_output['last_hidden_state'] = out.last_hidden_state
 
-        return self._capture_all_leaf_outputs(forward_fn, model=hookable)
+        results = self._capture_all_leaf_outputs(forward_fn, model=hookable, pool_fn=self._model_pool)
+
+        # Add last_hidden_state as an explicit entry — guarantees exact match with embed_for_mode
+        if 'last_hidden_state' in model_output:
+            lhs = model_output['last_hidden_state']
+            results["last_hidden_state"] = self._model_pool(lhs).float().detach()
+
+        # For CLIP, also capture the visual projection (lives on CLIPModel, not vision_model)
+        if self.alias in _CLIP_FAMILY and hasattr(self.model, 'visual_projection'):
+            with torch.no_grad():
+                with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
+                    projected = self.model.get_image_features(pixel_values=inputs)
+            results["visual_projection"] = projected.float().detach()
+
+        return results
 
 
 class VLMAdapter(HFAdapter):
