@@ -41,12 +41,110 @@ def main():
     parser_calibrate.add_argument("--n-permutations", type=int, default=1000, help="Number of permutations for null distribution.")
     parser_calibrate.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility.")
 
+    # Subparser for physics validation tests
+    parser_physics = subparsers.add_parser(
+        "run-physics",
+        help="Test whether embeddings encode physical galaxy properties using Smith42/galaxies.",
+    )
+    parser_physics.add_argument(
+        "--model", required=True,
+        help="Model to test (e.g., 'vit', 'dino', 'convnext').",
+    )
+    parser_physics.add_argument(
+        "--split", default="test", choices=["test", "validation", "train"],
+        help="Dataset split to use (default: test).",
+    )
+    parser_physics.add_argument(
+        "--max-samples", type=int, default=0,
+        help="Max galaxies to process (default: all). Use 0 for all.",
+    )
+    parser_physics.add_argument(
+        "--batch-size", type=int, default=128,
+        help="Batch size for inference.",
+    )
+    parser_physics.add_argument(
+        "--num-workers", type=int, default=0,
+        help="Number of data loader workers.",
+    )
+    parser_physics.add_argument(
+        "--knn-k", type=int, default=10,
+        help="K for neighbour consistency metric.",
+    )
+    parser_physics.add_argument(
+        "--cv", type=int, default=5,
+        help="Cross-validation folds for linear probe.",
+    )
+    parser_physics.add_argument(
+        "--properties", nargs="+", default=None,
+        help="Physical properties to test (default: standard set). "
+             "Options: stellar_mass, u_minus_r, redshift, sersic_n, "
+             "smooth_fraction, spiral_arms, sfr, etc.",
+    )
+    parser_physics.add_argument(
+        "--projection", default="pca", choices=["pca", "umap"],
+        help="Dimensionality reduction for visualisation (default: pca).",
+    )
+    parser_physics.add_argument(
+        "--from-parquet", action="store_true",
+        help="Skip inference and load embeddings from saved parquet files in data/.",
+    )
+    parser_physics.add_argument(
+        "--input-dir", default="data",
+        help="Directory containing parquet files when using --from-parquet (default: data).",
+    )
+    parser_physics.add_argument(
+        "--pca-components", type=int, default=None,
+        help="Reduce embeddings to this many PCA components before linear probe "
+             "(default: no PCA). PCA is fit per CV fold to avoid leakage.",
+    )
+
+    # Subparser for running physics tests across all models
+    parser_physics_all = subparsers.add_parser(
+        "run-physics-all",
+        help="Run physics tests across all (or specified) models and produce a combined comparison.",
+    )
+    parser_physics_all.add_argument(
+        "--split", default="test", choices=["test", "validation", "train"],
+        help="Dataset split to use (default: test).",
+    )
+    parser_physics_all.add_argument(
+        "--max-samples", type=int, default=0,
+        help="Max galaxies to process (default: all). Use 0 for all.",
+    )
+    parser_physics_all.add_argument(
+        "--batch-size", type=int, default=128,
+        help="Batch size for inference.",
+    )
+    parser_physics_all.add_argument(
+        "--models", nargs="+", default=None,
+        help="Models to test (default: all in PHYSICS_MODEL_MAP).",
+    )
+    parser_physics_all.add_argument(
+        "--from-parquet", action="store_true",
+        help="Skip inference and load embeddings from saved parquet files.",
+    )
+    parser_physics_all.add_argument(
+        "--input-dir", default="data",
+        help="Directory containing parquet files when using --from-parquet (default: data).",
+    )
+    parser_physics_all.add_argument(
+        "--pca-components", type=int, default=None,
+        help="Reduce embeddings to this many PCA components before linear probe "
+             "(default: no PCA). PCA is fit per CV fold to avoid leakage.",
+    )
+
     # Subparser for computing dataset percentiles
     parser_percentiles = subparsers.add_parser("percentiles", help="Compute 1st/99th percentiles for dataset bands.")
     parser_percentiles.add_argument("--max-samples", type=int, default=10000, help="Max galaxies per dataset (default: 10000).")
     parser_percentiles.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy (default: match).")
     parser_percentiles.add_argument("--output", type=str, default="data/percentiles.json", help="Output JSON path (default: data/percentiles.json).")
 
+    # Subparser for pushing embeddings to HF Hub
+    parser_push = subparsers.add_parser("push", help="Push parquet embeddings to a Hugging Face Hub dataset repo.")
+    parser_push.add_argument("parquet_file", nargs="?", default=None, help="Path to a specific parquet file to push.")
+    parser_push.add_argument("--all", action="store_true", dest="push_all", help="Push all data/*.parquet files.")
+    parser_push.add_argument("--dataset", required=True, help="HF dataset repo ID (e.g., 'Smith42/my-embeddings').")
+    parser_push.add_argument("--token", default=None, help="HF token (defaults to cached login).")
     # Subparser for layerwise extraction
     parser_extract = subparsers.add_parser("extract-layers", help="Extract embeddings from all layers of a model.")
     parser_extract.add_argument("--model", required=True, help="Model to extract (e.g., 'vit', 'dino').")
@@ -178,6 +276,124 @@ def main():
             json.dump(results, f, indent=2, default=str)
 
         print(json.dumps(results, indent=2, default=str))
+    elif args.command == "run-physics":
+        max_samples = args.max_samples if args.max_samples != 0 else None
+
+        if args.from_parquet:
+            from pu.physics_experiment import rerun_physics_from_parquet
+            results = rerun_physics_from_parquet(
+                model_alias=args.model,
+                split=args.split,
+                max_samples=max_samples,
+                knn_k=args.knn_k,
+                cv=args.cv,
+                properties=args.properties,
+                input_dir=args.input_dir,
+                pca_components=args.pca_components,
+            )
+        else:
+            from pu.physics_experiment import run_physics_experiment
+            results = run_physics_experiment(
+                model_alias=args.model,
+                split=args.split,
+                max_samples=max_samples,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                knn_k=args.knn_k,
+                cv=args.cv,
+                properties=args.properties,
+                projection=args.projection,
+                pca_components=args.pca_components,
+            )
+
+        # Print summary across sizes
+        print(f"\n{'='*70}")
+        print(f"PHYSICS TEST SUMMARY: {args.model}")
+        print(f"{'='*70}")
+        for size, size_data in results["sizes"].items():
+            r2_mean = size_data.get("r2_mean")
+            r2_se = size_data.get("r2_se")
+            r2_mean_str = f"{r2_mean:.4f}" if r2_mean is not None else "N/A"
+            r2_se_str = f"{r2_se:.4f}" if r2_se is not None else "N/A"
+            print(f"\n  {args.model}-{size} ({size_data['n_samples']} samples, "
+                  f"dim={size_data['embedding_dim']})  mean_R²={r2_mean_str} ±{r2_se_str}")
+            for prop, metrics in size_data["properties"].items():
+                lr2 = metrics.get("linear_probe_r2")
+                lr2_str = f"{lr2:.4f}" if lr2 is not None else "N/A"
+                print(f"    {prop:<25} linear_probe_r2={lr2_str}")
+        print(f"{'='*70}")
+    elif args.command == "run-physics-all":
+        from pu.physics_experiment import PHYSICS_MODEL_MAP, run_physics_experiment, rerun_physics_from_parquet
+
+        max_samples = args.max_samples if args.max_samples != 0 else None
+        model_list = args.models or list(PHYSICS_MODEL_MAP.keys())
+
+        combined = {"split": args.split, "models": {}}
+
+        for model_alias in model_list:
+            if model_alias not in PHYSICS_MODEL_MAP:
+                print(f"Warning: '{model_alias}' not in PHYSICS_MODEL_MAP, skipping.")
+                continue
+
+            print(f"\n{'#'*70}")
+            print(f"# Running physics tests for: {model_alias}")
+            print(f"{'#'*70}")
+
+            if args.from_parquet:
+                results = rerun_physics_from_parquet(
+                    model_alias=model_alias,
+                    split=args.split,
+                    max_samples=max_samples,
+                    input_dir=args.input_dir,
+                    pca_components=args.pca_components,
+                )
+            else:
+                results = run_physics_experiment(
+                    model_alias=model_alias,
+                    split=args.split,
+                    max_samples=max_samples,
+                    batch_size=args.batch_size,
+                    pca_components=args.pca_components,
+                )
+
+            model_entry = {}
+            for size, size_data in results["sizes"].items():
+                model_entry[size] = {
+                    "r2_mean": size_data.get("r2_mean"),
+                    "r2_se": size_data.get("r2_se"),
+                    "r2_std": size_data.get("r2_std"),
+                    "r2_per_property": size_data.get("r2_per_property"),
+                    "n_samples": size_data["n_samples"],
+                    "embedding_dim": size_data["embedding_dim"],
+                }
+            combined["models"][model_alias] = model_entry
+
+        # Print comparison table
+        print(f"\n{'='*70}")
+        print("PHYSICS COMPARISON: mean R² across models")
+        print(f"{'='*70}")
+        print(f"  {'Model':<15} {'Size':<15} {'mean R² ± SE':<18} {'dim':<8} {'n':<8}")
+        print(f"  {'-'*64}")
+        for model_alias, sizes in combined["models"].items():
+            for size, data in sizes.items():
+                r2 = data.get("r2_mean")
+                se = data.get("r2_se")
+                if r2 is not None and se is not None:
+                    r2_str = f"{r2:.4f} ±{se:.4f}"
+                elif r2 is not None:
+                    r2_str = f"{r2:.4f}"
+                else:
+                    r2_str = "N/A"
+                print(f"  {model_alias:<15} {size:<15} {r2_str:<18} {data['embedding_dim']:<8} {data['n_samples']:<8}")
+        print(f"{'='*70}")
+
+        # Save combined JSON
+        os.makedirs("data", exist_ok=True)
+        output_path = f"data/physics_all_{args.split}.json"
+        with open(output_path, "w") as f:
+            json.dump(combined, f, indent=2)
+        print(f"\nCombined results saved to {output_path}")
+
     elif args.command == "percentiles":
         from pu.percentiles import compute_percentiles
         compute_percentiles(

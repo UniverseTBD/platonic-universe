@@ -34,6 +34,20 @@ from pu.metrics.neighbors import mknn, jaccard, rsa
 # Regression-based metrics
 from pu.metrics.regression import linear_r2, bidirectional_linear_r2
 
+# Physics-informed validation metrics
+from pu.metrics.physics import (
+    linear_probe,
+    nonlinear_probe,
+    neighbor_property_consistency,
+    embedding_property_correlation,
+    neighbor_set_overlap,
+    joint_neighbor_set_overlap,
+    run_physics_tests,
+    ALL_PROPERTIES,
+    DEFAULT_PROPERTIES,
+    PROPERTY_GROUPS,
+)
+
 # Calibration
 from pu.metrics.calibration import calibrate
 
@@ -85,6 +99,17 @@ __all__ = [
     # Regression
     "linear_r2",
     "bidirectional_linear_r2",
+    # Physics
+    "linear_probe",
+    "nonlinear_probe",
+    "neighbor_property_consistency",
+    "embedding_property_correlation",
+    "neighbor_set_overlap",
+    "joint_neighbor_set_overlap",
+    "run_physics_tests",
+    "ALL_PROPERTIES",
+    "DEFAULT_PROPERTIES",
+    "PROPERTY_GROUPS",
     # Calibration
     "calibrate",
     # I/O
