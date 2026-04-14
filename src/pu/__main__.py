@@ -145,6 +145,28 @@ def main():
     parser_push.add_argument("--all", action="store_true", dest="push_all", help="Push all data/*.parquet files.")
     parser_push.add_argument("--dataset", required=True, help="HF dataset repo ID (e.g., 'Smith42/my-embeddings').")
     parser_push.add_argument("--token", default=None, help="HF token (defaults to cached login).")
+    # Subparser for layerwise extraction
+    parser_extract = subparsers.add_parser("extract-layers", help="Extract embeddings from all layers of a model.")
+    parser_extract.add_argument("--model", required=True, help="Model to extract (e.g., 'vit', 'dino').")
+    parser_extract.add_argument("--mode", required=True, help="Dataset mode (e.g., 'jwst', 'desi').")
+    parser_extract.add_argument("--batch-size", type=int, default=64, help="Batch size (default: 64, lower than run due to layerwise memory).")
+    parser_extract.add_argument("--num-workers", type=int, default=0, help="Number of data loader workers.")
+    parser_extract.add_argument("--no-resize", dest="resize", action="store_false", help="Disable galaxy resizing.")
+    parser_extract.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy (default: match).")
+    parser_extract.add_argument("--test", action="store_true", help="Quick test run using only 1000 samples.")
+    parser_extract.add_argument("--test-10k", action="store_true", help="Test run using only 10000 samples.")
+    parser_extract.add_argument("--hf-repo", type=str, default=os.environ.get("PU_HF_REPO"), help="HuggingFace dataset repo ID for upload. Default: $PU_HF_REPO.")
+    parser_extract.add_argument("--hf-token", type=str, default=None, help="HuggingFace token. Default: $HF_TOKEN env var.")
+    parser_extract.add_argument("--no-upload", action="store_true", help="Disable HuggingFace upload (upload is on by default when --hf-repo is set).")
+    parser_extract.add_argument("--delete-after-upload", action="store_true", help="Delete local parquet file after successful upload to HuggingFace. Saves disk space.")
+    parser_extract.add_argument("--output-dir", type=str, default="data", help="Directory to write parquet files (default: data/).")
+
+    # Subparser for pushing parquet files to HuggingFace Hub
+    parser_push = subparsers.add_parser("push", help="Upload parquet files to a HuggingFace dataset repo.")
+    parser_push.add_argument("file", nargs="?", help="Path to a .parquet file to upload.")
+    parser_push.add_argument("--all", action="store_true", help="Upload all .parquet files in data/.")
+    parser_push.add_argument("--repo", required=True, help="HuggingFace dataset repo ID (e.g., 'org/dataset-name').")
+    parser_push.add_argument("--token", type=str, default=None, help="HuggingFace token. Default: $HF_TOKEN env var.")
 
     # Subparser for benchmarking performance optimizations
     parser_benchmark = subparsers.add_parser("benchmark", help="Run performance benchmarks with optimization flags.")
@@ -379,17 +401,33 @@ def main():
             resize_mode=args.resize_mode,
             output_path=args.output,
         )
+    elif args.command == "extract-layers":
+        from pu.experiments_layerwise import extract_all_layers
+        if args.mode in PAIRED_MODES and args.num_workers > 0:
+            print(f"Warning: Setting num_workers=0 for paired mode '{args.mode}' because multiple workers can change draw order and break pairing.")
+            args.num_workers = 0
+        extract_all_layers(
+            args.model,
+            args.mode,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            max_samples=1000 if args.test else 10000 if args.test_10k else None,
+            resize=args.resize,
+            resize_mode=args.resize_mode,
+            output_dir=args.output_dir,
+            hf_repo=args.hf_repo,
+            hf_token=args.hf_token,
+            upload=not args.no_upload,
+            delete_after_upload=args.delete_after_upload,
+        )
     elif args.command == "push":
-        from pu.hub import push_all, push_parquet
-
-        if args.parquet_file and args.push_all:
-            parser.error("Specify either a parquet file or --all, not both.")
-        elif args.push_all:
-            push_all("data", args.dataset, token=args.token)
-        elif args.parquet_file:
-            push_parquet(args.parquet_file, args.dataset, token=args.token)
+        from pu.hub import push_parquet, push_all
+        if args.all:
+            push_all("data", args.repo, token=args.token)
+        elif args.file:
+            push_parquet(args.file, args.repo, token=args.token)
         else:
-            parser.error("Specify either a parquet file or --all.")
+            parser.error("Specify a file or --all")
     elif args.command == "benchmark":
         from pu.benchmark import run_benchmark, BenchmarkConfig
 

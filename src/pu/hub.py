@@ -6,19 +6,15 @@ import glob
 import os
 import re
 
-import yaml
 
+def _parse_filename(parquet_path: str) -> tuple[str, str, str]:
+    """Parse a parquet filename into (subdirectory, filename_in_repo, config_name).
 
-def _parse_filename(parquet_path: str) -> tuple[str, str]:
-    """Parse a parquet filename into (subdirectory, filename_in_repo).
-
-    E.g. data/jwst_vit_base.parquet → ("jwst", "vit_base.parquet")
-    Config name is derived as "jwst_vit_base".
+    E.g. data/jwst_vit_base.parquet -> ("jwst", "vit_base.parquet", "jwst_vit_base")
     """
-    basename = os.path.basename(parquet_path)  # jwst_vit_base.parquet
-    stem = basename.removesuffix(".parquet")  # jwst_vit_base
+    basename = os.path.basename(parquet_path)
+    stem = basename.removesuffix(".parquet")
 
-    # First token is the mode, rest is model_size
     parts = stem.split("_", 1)
     if len(parts) < 2:
         raise ValueError(
@@ -26,7 +22,7 @@ def _parse_filename(parquet_path: str) -> tuple[str, str]:
         )
 
     mode = parts[0]
-    remainder = parts[1]  # e.g. vit_base
+    remainder = parts[1]
     return mode, f"{remainder}.parquet", stem
 
 
@@ -36,6 +32,7 @@ def _parse_readme_configs(readme_text: str) -> tuple[list[dict], str]:
     if not match:
         return [], ""
 
+    import yaml
     front_matter = yaml.safe_load(match.group(1)) or {}
     body = match.group(2)
     return front_matter.get("configs", []), body
@@ -43,6 +40,7 @@ def _parse_readme_configs(readme_text: str) -> tuple[list[dict], str]:
 
 def _build_readme(configs: list[dict], body: str = "") -> str:
     """Build a README.md string with YAML front matter configs."""
+    import yaml
     front_matter = yaml.dump(
         {"configs": configs},
         default_flow_style=False,
@@ -68,23 +66,19 @@ def push_parquet(
 
     api = HfApi(token=token)
 
-    # Create repo (no-op if it already exists)
     api.create_repo(repo_id, repo_type="dataset", exist_ok=True)
 
-    # Parse filename → subdirectory layout
     mode, filename, config_name = _parse_filename(parquet_path)
     path_in_repo = f"{mode}/{filename}"
 
-    # Upload the parquet file
     api.upload_file(
         path_or_fileobj=parquet_path,
         path_in_repo=path_in_repo,
         repo_id=repo_id,
         repo_type="dataset",
     )
-    print(f"Uploaded {parquet_path} → {repo_id}/{path_in_repo}")
+    print(f"Uploaded {parquet_path} -> {repo_id}/{path_in_repo}")
 
-    # Update README.md with config entry
     _update_readme_config(api, repo_id, config_name, path_in_repo)
 
 
@@ -95,7 +89,6 @@ def _update_readme_config(
     path_in_repo: str,
 ) -> None:
     """Download, update, and re-upload README.md with the new config entry."""
-    # Try to download existing README
     try:
         readme_path = api.hf_hub_download(
             repo_id, "README.md", repo_type="dataset"
@@ -107,13 +100,11 @@ def _update_readme_config(
 
     configs, body = _parse_readme_configs(readme_text)
 
-    # Upsert the config entry
     new_entry = {
         "config_name": config_name,
         "data_files": [{"split": "train", "path": path_in_repo}],
     }
 
-    # Replace existing entry with same config_name, or append
     replaced = False
     for i, cfg in enumerate(configs):
         if cfg.get("config_name") == config_name:
@@ -123,7 +114,6 @@ def _update_readme_config(
     if not replaced:
         configs.append(new_entry)
 
-    # Sort configs for deterministic output
     configs.sort(key=lambda c: c["config_name"])
 
     readme_content = _build_readme(configs, body)
