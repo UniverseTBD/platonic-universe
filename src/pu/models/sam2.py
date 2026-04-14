@@ -35,6 +35,8 @@ class SAM2Adapter(ModelAdapter):
         self.predictor = None
 
     def load(self, compile_model: bool = False) -> None:
+        # Build SAM2 model using the config and checkpoint
+        # model_name is expected to be a Hugging Face model ID like "facebook/sam2.1-hiera-large"
         self.predictor = SAM2ImagePredictor.from_pretrained(self.model_name)
         self.model = self.predictor.model
         self.model.to("cuda").eval()
@@ -45,6 +47,7 @@ class SAM2Adapter(ModelAdapter):
         return self.model.image_encoder
 
     def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "fill"):
+        # Return a callable compatible with datasets.Dataset.map
         return PreprocessSAM2(modes, self.predictor._transforms, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
@@ -52,25 +55,34 @@ class SAM2Adapter(ModelAdapter):
         Given a batch from the DataLoader and the mode name,
         return embeddings for that batch using SAM2's image encoder.
         """
+        # batch contains preprocessed images under f"{mode}" key
         inputs = batch[f"{mode}"].to("cuda")
         with torch.no_grad():
+            # Case 1: user passed a list of numpy arrays (predictor expects that)
             if isinstance(inputs, list):
+                # Let the high-level predictor handle batching and transforms
                 self.predictor.set_image_batch(inputs)
                 emb = self.predictor.get_image_embedding()
+                # get_image_embedding returns feats[-1] with shape (B, C, H_emb, W_emb)
                 return emb.mean(dim=(2, 3))
 
+            # Case 2: inputs is a tensor (Bx3xHxW)
             if isinstance(inputs, torch.Tensor):
+                # Forward through the model to get backbone outputs
                 backbone_out = self.model.forward_image(inputs)
                 _, vision_feats, _, _ = self.model._prepare_backbone_features(backbone_out)
+                # Add no_mem_embed, which predictor does when directly_add_no_mem_embed is True
                 if getattr(self.model, "directly_add_no_mem_embed", False):
                     vision_feats[-1] = vision_feats[-1] + self.model.no_mem_embed
                 B = inputs.shape[0]
+                # Same spatial sizes used in SAM2ImagePredictor
                 bb_feat_sizes = [(256, 256), (128, 128), (64, 64)]
                 feats = [
                     feat.permute(1, 2, 0).view(B, -1, *feat_size)
                     for feat, feat_size in zip(vision_feats[::-1], bb_feat_sizes[::-1])
                 ][::-1]
-                return feats[-1].detach().amax(dim=(2, 3))
+                # feats[-1] is the image embedding; feats[:-1] are high_res_feats
+                return feats[-1].detach().amax(dim=(2, 3))  # (B, C)
 
             raise TypeError(f"Unsupported input type: {type(inputs)}")
 
@@ -110,5 +122,6 @@ class SAM2Adapter(ModelAdapter):
         return results
 
 
+# Register the adapter only if SAM2 is available
 if SAM2_AVAILABLE:
     register_adapter("sam2", SAM2Adapter)

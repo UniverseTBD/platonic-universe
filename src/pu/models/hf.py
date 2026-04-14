@@ -54,9 +54,12 @@ class HFAdapter(ModelAdapter):
         else:
             self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
 
+        # Apply torch.compile for optimized inference
         if compile_model:
             self.model = torch.compile(
-                self.model, mode="reduce-overhead", fullgraph=False,
+                self.model,
+                mode="reduce-overhead",
+                fullgraph=False,  # Allow graph breaks for complex HF models
             )
 
     def _get_hookable_model(self) -> nn.Module:
@@ -68,8 +71,10 @@ class HFAdapter(ModelAdapter):
         return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
+        # batch is a dict produced by the DataLoader; HF preprocess stores tensors under f"{mode}"
         inputs = batch[f"{mode}"].to("cuda")
         with torch.no_grad():
+            # Use AMP if enabled for faster inference with lower memory
             with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
                 if self.alias == "clip":
                     outputs = self.model.get_image_features(pixel_values=inputs)
@@ -84,9 +89,13 @@ class HFAdapter(ModelAdapter):
                 elif self.alias == "dinov3":
                     emb = outputs[:, 0, :]
                 elif self.alias in ("ijepa", "vjepa", "hiera"):
+                    #  Hiera output is (B, 49, C).
+                    # We pool over the sequence dimension (dim=1).
                     emb = outputs.mean(dim=1)
                 else:
+                    # Default fallback: mean over token dim excluding CLS if present
                     emb = outputs.mean(dim=1)
+            # Always return float32 for downstream metric computation
             emb = emb.float().detach()
         return emb
 
@@ -161,6 +170,9 @@ class VLMAdapter(HFAdapter):
     PaliGemma2 (all sizes) and LLaVA-1.5 and LLaVA-OneVision.
     """
 
+    # Minimal prompt that causes the processor to insert the right number
+    # of image token slots. Empty string works for PaliGemma (processor
+    # handles token injection implicitly); LLaVA variants need "<image>".
     _PROMPTS = {
         "paligemma":    "<image> ",
         "paligemma_3b": "<image> ",
@@ -192,9 +204,11 @@ class VLMAdapter(HFAdapter):
         return names
 
     def get_preprocessor(self, modes: Iterable[str], resize: bool = True, resize_mode: str = "match"):
+        # PreprocessHF works with AutoProcessor just as well as AutoImageProcessor
         return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
     def _prepare_vlm_inputs(self, batch, mode):
+        """Prepare tokenized inputs for the VLM forward pass."""
         import warnings
         warnings.filterwarnings("ignore", message=".*PaliGemma.*")
         warnings.filterwarnings("ignore", message=".*PaliGemmaProcessor.*")
@@ -203,9 +217,15 @@ class VLMAdapter(HFAdapter):
 
         device = next(self.model.parameters()).device
         pv = batch[f"{mode}"].to(device)
+
+        # Cast pixel_values to match model weights dtype (bf16) to avoid
+        # the "Input type / weight type mismatch" RuntimeError
         model_dtype = next(self.model.parameters()).dtype
         pv = pv.to(dtype=model_dtype)
 
+        # Build a minimal tokenised prompt so the model can place image tokens.
+        # Reconstruct PIL images from the batch tensor for the processor
+        # (pv is (B, C, H, W) float, convert back to uint8 PIL for processor)
         from PIL import Image
         B = pv.shape[0]
         prompt = self._PROMPTS.get(self.alias, " ")
@@ -222,6 +242,7 @@ class VLMAdapter(HFAdapter):
         )
         input_ids = enc["input_ids"].to(device)
         attn_mask = enc["attention_mask"].to(device)
+        # Use processor-normalized pixel_values (correct dtype/scale for model)
         pv_enc = enc["pixel_values"].to(device, dtype=model_dtype)
         return input_ids, pv_enc, attn_mask
 
@@ -236,11 +257,15 @@ class VLMAdapter(HFAdapter):
             out = self.model(
                 input_ids=input_ids, pixel_values=pv,
                 attention_mask=attn_mask, return_dict=True,
-                output_hidden_states=True,
+                output_hidden_states=True,  # needed: CausalLMOutput has no .last_hidden_state
             )
+        # hidden_states[-1] is the final LLM layer output (B, seq_len, D).
+        # For PaliGemma: image_hidden_states is the vision-encoder output —
+        # we use the LLM hidden states instead so both families share one path.
         if hasattr(out, "hidden_states") and out.hidden_states is not None:
             return self._masked_mean_pool(out.hidden_states[-1], attn_mask)
         elif hasattr(out, "image_hidden_states") and out.image_hidden_states is not None:
+            # Fallback: use vision encoder output directly, mean-pool patches
             return out.image_hidden_states.mean(dim=1).float().detach()
         else:
             raise AttributeError(
@@ -283,12 +308,14 @@ class VLMAdapter(HFAdapter):
         return results
 
 
-# Register adapters
+# Register this adapter for the HF-style aliases used by the repo
 for alias in ("vit", "dino", "dinov3", "convnext", "ijepa", "vjepa", "vit-mae", "hiera", "clip"):
     register_adapter(alias, HFAdapter)
 
+# VLM aliases — PaliGemma2 sizes
 for alias in ("paligemma", "paligemma_3b", "paligemma_10b", "paligemma_28b"):
     register_adapter(alias, VLMAdapter)
 
+# VLM aliases — LLaVA variants
 for alias in ("llava_15", "llava_15_7b", "llava_15_13b", "llava_ov", "llava_ov_7b"):
     register_adapter(alias, VLMAdapter)
