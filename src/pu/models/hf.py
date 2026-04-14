@@ -23,6 +23,15 @@ _CLIP_FAMILY = {"clip"}
 class HFAdapter(ModelAdapter):
     """
     Adapter for HuggingFace vision models using AutoModel + AutoImageProcessor.
+    The adapter uses the 'alias' passed at construction to decide pooling:
+      - 'vit' -> CLS excluded mean over tokens (last_hidden_state[:,1:].mean)
+      - 'dino' -> CLS token (last_hidden_state[:,0])
+      - 'convnext' -> spatial mean over HxW (last_hidden_state.mean(dim=(2,3)))
+      - 'ijepa' -> mean over token dim (last_hidden_state.mean(dim=1))
+      - 'vjepa' -> mean over token dim (last_hidden_state.mean(dim=1))
+      - 'vit-mae' -> CLS excluded mean over tokens (last_hidden_state[:,1:].mean)
+      - 'clip' -> image features: final, projected visual embs that have been
+            aligned with text (get_image_features(), shape [batch, embedding_dim])
     """
 
     def __init__(self, model_name: str, size: str, alias: str = None):
@@ -143,7 +152,13 @@ class HFAdapter(ModelAdapter):
 
 class VLMAdapter(HFAdapter):
     """
-    Adapter for vision-language models (PaliGemma2, LLaVA-1.5, LLaVA-OneVision).
+    Subclass of HFAdapter for vision-language models that need:
+      - AutoProcessor instead of AutoImageProcessor
+      - AutoModelForImageTextToText instead of AutoModel
+      - pixel_values passed explicitly (with dtype cast) alongside a text prompt
+      - last_hidden_state mean-pooled over the full sequence
+
+    PaliGemma2 (all sizes) and LLaVA-1.5 and LLaVA-OneVision.
     """
 
     _PROMPTS = {

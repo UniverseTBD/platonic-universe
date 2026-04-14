@@ -9,7 +9,10 @@ from pu.preprocess import PreprocessAstropt
 
 
 class AstroptAdapter(ModelAdapter):
-    """Adapter for astroPT models."""
+    """
+    Adapter for astroPT models. Wraps `load_astropt` and uses `PreprocessAstropt`
+    for preprocessing and the model's `generate_embeddings` for embedding.
+    """
 
     def __init__(self, model_name: str, size: str, alias: str = None):
         super().__init__(model_name, size, alias)

@@ -16,7 +16,13 @@ except ImportError:
 
 
 class SAM2Adapter(ModelAdapter):
-    """Adapter for SAM2 models. Uses the Hiera backbone for image embeddings."""
+    """
+    Adapter for SAM2 (Segment Anything Model 2) models.
+    Uses SAM2's image encoder to extract image embeddings.
+
+    Note: SAM2 must be installed separately. Install with:
+        pip install git+https://github.com/facebookresearch/sam2.git
+    """
 
     def __init__(self, model_name: str, size: str, alias: str = None):
         super().__init__(model_name, size, alias)
@@ -42,6 +48,10 @@ class SAM2Adapter(ModelAdapter):
         return PreprocessSAM2(modes, self.predictor._transforms, resize=resize, resize_mode=resize_mode)
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
+        """
+        Given a batch from the DataLoader and the mode name,
+        return embeddings for that batch using SAM2's image encoder.
+        """
         inputs = batch[f"{mode}"].to("cuda")
         with torch.no_grad():
             if isinstance(inputs, list):
