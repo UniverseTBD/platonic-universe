@@ -84,6 +84,13 @@ class HFAdapter(ModelAdapter):
     def supports_layerwise(self) -> bool:
         return True
 
+    def get_layer_names(self) -> list:
+        names = super().get_layer_names()
+        names.append("last_hidden_state")
+        if self.alias in _CLIP_FAMILY:
+            names.append("visual_projection")
+        return names
+
     def _model_pool(self, t: torch.Tensor) -> torch.Tensor:
         """Pool using the same strategy as embed_for_mode."""
         if t.dim() == 4:
@@ -164,6 +171,11 @@ class VLMAdapter(HFAdapter):
     def _get_hookable_model(self) -> nn.Module:
         return self.model
 
+    def get_layer_names(self) -> list:
+        names = super(HFAdapter, self).get_layer_names()  # base class (leaf modules)
+        names.append("hidden_states_last")
+        return names
+
     def get_preprocessor(self, modes: Iterable[str], resize: bool = True, resize_mode: str = "match"):
         return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
@@ -227,6 +239,7 @@ class VLMAdapter(HFAdapter):
     ) -> Dict[str, torch.Tensor]:
         input_ids, pv, attn_mask = self._prepare_vlm_inputs(batch, mode)
         seq_len = attn_mask.shape[1]
+        model_output = {}
 
         def pool_fn(t):
             # Use masked pooling for tensors matching the LM sequence length
@@ -235,12 +248,24 @@ class VLMAdapter(HFAdapter):
             return self._generic_pool(t)
 
         def forward_fn():
-            self.model(
+            out = self.model(
                 input_ids=input_ids, pixel_values=pv,
                 attention_mask=attn_mask, return_dict=True,
+                output_hidden_states=True,
+            )
+            # Capture the final LM hidden state — matches embed_for_mode exactly
+            if hasattr(out, "hidden_states") and out.hidden_states is not None:
+                model_output["hidden_states_last"] = out.hidden_states[-1]
+
+        results = self._capture_all_leaf_outputs(forward_fn, pool_fn=pool_fn)
+
+        # Add final hidden state with masked pooling — bit-identical to embed_for_mode
+        if "hidden_states_last" in model_output:
+            results["hidden_states_last"] = self._masked_mean_pool(
+                model_output["hidden_states_last"], attn_mask
             )
 
-        return self._capture_all_leaf_outputs(forward_fn, pool_fn=pool_fn)
+        return results
 
 
 # Register adapters
