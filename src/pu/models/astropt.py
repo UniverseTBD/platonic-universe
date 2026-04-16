@@ -41,8 +41,8 @@ class AstroptAdapter(ModelAdapter):
     def supports_layerwise(self) -> bool:
         return True
 
-    def get_layer_names(self, include_leaves: bool = False) -> list:
-        names = super().get_layer_names(include_leaves=include_leaves)
+    def get_layer_names(self, granularity: str = "blocks") -> list:
+        names = super().get_layer_names(granularity=granularity)
         names.append("embed_for_mode_output")
         return names
 
@@ -50,7 +50,7 @@ class AstroptAdapter(ModelAdapter):
         self,
         batch: Dict[str, Any],
         mode: str,
-        include_leaves: bool = False,
+        granularity: str = "blocks",
     ) -> Dict[str, torch.Tensor]:
         inputs = {
             "images": batch[f"{mode}_images"].to("cuda"),
@@ -62,7 +62,7 @@ class AstroptAdapter(ModelAdapter):
             out = self.model.generate_embeddings(inputs)
             model_output["emb"] = out["images"].detach()
 
-        results = self._capture_module_outputs(forward_fn, include_leaves=include_leaves)
+        results = self._capture_module_outputs(forward_fn, granularity=granularity)
         # Exact match with embed_for_mode
         if "emb" in model_output:
             results["embed_for_mode_output"] = model_output["emb"].float()

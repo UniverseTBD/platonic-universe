@@ -97,8 +97,8 @@ class HFAdapter(ModelAdapter):
     def supports_layerwise(self) -> bool:
         return True
 
-    def get_layer_names(self, include_leaves: bool = False) -> list:
-        names = super().get_layer_names(include_leaves=include_leaves)
+    def get_layer_names(self, granularity: str = "blocks") -> list:
+        names = super().get_layer_names(granularity=granularity)
         names.append("last_hidden_state")
         if self.alias in _CLIP_FAMILY:
             names.append("visual_projection")
@@ -124,7 +124,7 @@ class HFAdapter(ModelAdapter):
         self,
         batch: Dict[str, Any],
         mode: str,
-        include_leaves: bool = False,
+        granularity: str = "blocks",
     ) -> Dict[str, torch.Tensor]:
         inputs = batch[f"{mode}"].to("cuda")
         hookable = self._get_hookable_model()
@@ -139,7 +139,7 @@ class HFAdapter(ModelAdapter):
                 model_output['last_hidden_state'] = out.last_hidden_state
 
         results = self._capture_module_outputs(
-            forward_fn, model=hookable, pool_fn=self._model_pool, include_leaves=include_leaves
+            forward_fn, model=hookable, pool_fn=self._model_pool, granularity=granularity
         )
 
         # Add last_hidden_state as an explicit entry — guarantees exact match with embed_for_mode
@@ -196,8 +196,8 @@ class VLMAdapter(HFAdapter):
     def _get_hookable_model(self) -> nn.Module:
         return self.model
 
-    def get_layer_names(self, include_leaves: bool = False) -> list:
-        names = super(HFAdapter, self).get_layer_names(include_leaves=include_leaves)
+    def get_layer_names(self, granularity: str = "blocks") -> list:
+        names = super(HFAdapter, self).get_layer_names(granularity=granularity)
         names.append("hidden_states_last")
         return names
 
@@ -274,7 +274,7 @@ class VLMAdapter(HFAdapter):
         self,
         batch: Dict[str, Any],
         mode: str,
-        include_leaves: bool = False,
+        granularity: str = "blocks",
     ) -> Dict[str, torch.Tensor]:
         input_ids, pv, attn_mask = self._prepare_vlm_inputs(batch, mode)
         seq_len = attn_mask.shape[1]
@@ -297,7 +297,7 @@ class VLMAdapter(HFAdapter):
                 model_output["hidden_states_last"] = out.hidden_states[-1]
 
         results = self._capture_module_outputs(
-            forward_fn, pool_fn=pool_fn, include_leaves=include_leaves
+            forward_fn, pool_fn=pool_fn, granularity=granularity
         )
 
         # Add final hidden state with masked pooling — bit-identical to embed_for_mode

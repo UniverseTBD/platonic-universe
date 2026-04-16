@@ -356,39 +356,38 @@ class TestLayerwiseExtraction:
             )
             break
 
-    def test_extraction_returns_block_level_modules(self, adapter, modes):
-        """Default extraction returns block-level (residual stream) modules."""
+    def test_extraction_granularity_modes(self, adapter, modes):
+        """Test all 4 granularity modes return expected number of points."""
         self._skip_if_no_layerwise(adapter)
 
-        layer_names = adapter.get_layer_names()
-        num_layers = adapter.get_num_layers()
+        # Blocks: ~16 for ViT-base (embeddings + 12 blocks + layernorm + pooler + last_hidden_state)
+        block_names = adapter.get_layer_names(granularity="blocks")
+        assert 10 < len(block_names) < 25, f"Expected ~16 block points, got {len(block_names)}"
+        assert "encoder.layer.0" in block_names
+        assert "encoder.layer.11" in block_names
+        assert "last_hidden_state" in block_names
 
-        # ViT-base: ~76 block-level modules (embeddings, encoder.layer.N, encoder.layer.N.attention, etc.)
-        assert num_layers > 50, (
-            f"Expected >50 block-level extraction points for ViT-base, got {num_layers}"
-        )
-        assert len(layer_names) == num_layers
+        # Residual: ~76
+        residual_names = adapter.get_layer_names(granularity="residual")
+        assert len(residual_names) > 50
 
-        # Verify we see block-level modules
-        names_str = " ".join(layer_names)
-        assert "encoder.layer.0" in names_str
-        assert "encoder.layer.11" in names_str
-        assert "last_hidden_state" in names_str
+        # Leaves: ~138
+        leaf_names = adapter.get_layer_names(granularity="leaves")
+        assert len(leaf_names) > 100
 
-        # With include_leaves, should get many more
-        leaf_names = adapter.get_layer_names(include_leaves=True)
-        assert len(leaf_names) > 200, (
-            f"Expected >200 with leaves for ViT-base, got {len(leaf_names)}"
-        )
+        # All: ~213
+        all_names = adapter.get_layer_names(granularity="all")
+        assert len(all_names) > 200
 
+        # Default (blocks) extraction
         ds = _stream_dataset("desi", adapter, modes, 4)
         dl = DataLoader(ds, batch_size=4, num_workers=0)
 
         for batch in dl:
             layer_embs = adapter.embed_all_layers_for_mode(batch, "hsc")
-            for key in layer_embs:
-                assert key in layer_names, f"Unexpected key '{key}' not in layer_names"
-            assert len(layer_embs) > 50
+            assert len(layer_embs) == len(block_names), (
+                f"Default extraction: expected {len(block_names)}, got {len(layer_embs)}"
+            )
             break
 
     def test_all_outputs_are_valid_tensors(self, adapter, modes):
@@ -449,7 +448,7 @@ class TestLayerwiseExtraction:
         dl = DataLoader(ds, batch_size=4, num_workers=0)
 
         for batch in dl:
-            layer_embs = adapter.embed_all_layers_for_mode(batch, "hsc", include_leaves=True)
+            layer_embs = adapter.embed_all_layers_for_mode(batch, "hsc", granularity="all")
 
             q_key = "encoder.layer.0.attention.attention.query"
             v_key = "encoder.layer.0.attention.attention.value"

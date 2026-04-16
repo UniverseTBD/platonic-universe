@@ -160,7 +160,7 @@ def main():
     parser_extract.add_argument("--no-upload", action="store_true", help="Disable HuggingFace upload (upload is on by default when --hf-repo is set).")
     parser_extract.add_argument("--delete-after-upload", action="store_true", help="Delete local parquet file after successful upload to HuggingFace. Saves disk space.")
     parser_extract.add_argument("--output-dir", type=str, default="data", help="Directory to write parquet files (default: data/).")
-    parser_extract.add_argument("--include-leaves", action="store_true", help="Also extract leaf module activations (Linear, GELU, etc.) in addition to block-level outputs. Off by default.")
+    parser_extract.add_argument("--granularity", type=str, default="blocks", choices=["blocks", "residual", "leaves", "all"], help="Extraction granularity: 'blocks' (default, ~14 for ViT-base, matches upstream PRH), 'residual' (~76, all non-leaf), 'leaves' (~137, leaf only), 'all' (~213, everything).")
     parser_extract.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default: 42).")
 
     # Subparser for pushing parquet files to HuggingFace Hub
@@ -421,7 +421,7 @@ def main():
             hf_token=args.hf_token,
             upload=not args.no_upload,
             delete_after_upload=args.delete_after_upload,
-            include_leaves=args.include_leaves,
+            granularity=args.granularity,
             seed=args.seed,
         )
     elif args.command == "push":
