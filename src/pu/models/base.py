@@ -1,8 +1,19 @@
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
+import numpy as np
+import random
 import torch
 import torch.nn as nn
+
+
+def set_seed(seed: int = 42):
+    """Set all random seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 class ModelAdapter(ABC):
@@ -57,10 +68,10 @@ class ModelAdapter(ABC):
         return False
 
     def _get_hookable_model(self) -> nn.Module:
-        """Return the model subtree whose leaf modules get hooked.
+        """Return the model subtree whose modules get hooked.
 
         Override in subclasses if only part of the model should be hooked
-        (e.g., CLIP's vision_model, SAM2's image_encoder).
+        (e.g., CLIP's vision_model).
         """
         return self.model
 
@@ -78,18 +89,30 @@ class ModelAdapter(ABC):
         else:
             return t.reshape(t.shape[0], -1)
 
-    def _capture_all_leaf_outputs(
+    @staticmethod
+    def _is_leaf(mod: nn.Module) -> bool:
+        return len(list(mod.children())) == 0
+
+    def _capture_module_outputs(
         self,
         forward_fn: Callable,
         model: Optional[nn.Module] = None,
         pool_fn: Optional[Callable] = None,
+        include_leaves: bool = False,
     ) -> Dict[str, torch.Tensor]:
-        """Hook every leaf module, run a forward pass, return pooled outputs.
+        """Hook modules, run a forward pass, return pooled outputs.
+
+        By default captures block-level (residual stream) outputs only.
+        Set include_leaves=True to also capture individual operations
+        (Linear, GELU, LayerNorm, etc.) for mechanistic interpretability.
 
         Args:
             forward_fn: Callable that triggers the model forward pass.
             model: Module subtree to hook (default: self._get_hookable_model()).
             pool_fn: Custom pooling function (default: _generic_pool).
+            include_leaves: If True, hook ALL modules (leaf + block-level).
+                If False (default), hook only non-leaf modules (block-level /
+                residual stream) which is what the upstream PRH paper uses.
 
         Returns:
             Dict mapping module name to pooled (batch_size, dim) tensor.
@@ -99,11 +122,13 @@ class ModelAdapter(ABC):
         results = {}
         hooks = []
 
-        # Collect leaf module names in named_modules() order (deterministic DFS)
-        leaf_names = []
+        # Collect module names in named_modules() order (deterministic DFS)
+        hook_names = []
         for name, mod in target.named_modules():
-            if name and len(list(mod.children())) == 0:
-                leaf_names.append(name)
+            if not name:
+                continue
+            if include_leaves or not self._is_leaf(mod):
+                hook_names.append(name)
 
         def _make_hook(name):
             def hook(module, input, output):
@@ -115,7 +140,9 @@ class ModelAdapter(ABC):
 
         try:
             for name, mod in target.named_modules():
-                if name and len(list(mod.children())) == 0:
+                if not name:
+                    continue
+                if include_leaves or not self._is_leaf(mod):
                     h = mod.register_forward_hook(_make_hook(name))
                     hooks.append(h)
 
@@ -127,27 +154,38 @@ class ModelAdapter(ABC):
 
         # Reorder results to match named_modules() DFS order
         ordered = {}
-        for name in leaf_names:
+        for name in hook_names:
             if name in results:
                 ordered[name] = results[name]
         return ordered
 
-    def get_layer_names(self) -> List[str]:
-        """Return ordered list of all hookable leaf module names."""
+    # Keep old name as alias for backwards compatibility
+    def _capture_all_leaf_outputs(self, forward_fn, model=None, pool_fn=None):
+        return self._capture_module_outputs(
+            forward_fn, model=model, pool_fn=pool_fn, include_leaves=True
+        )
+
+    def get_layer_names(self, include_leaves: bool = False) -> List[str]:
+        """Return ordered list of hookable module names.
+
+        Args:
+            include_leaves: If True, include leaf modules (Linear, GELU, etc.).
+                If False (default), only block-level / residual stream modules.
+        """
         target = self._get_hookable_model()
         return [
             name for name, mod in target.named_modules()
-            if name and len(list(mod.children())) == 0
+            if name and (include_leaves or not self._is_leaf(mod))
         ]
 
-    def get_num_layers(self) -> int:
-        return len(self.get_layer_names())
+    def get_num_layers(self, include_leaves: bool = False) -> int:
+        return len(self.get_layer_names(include_leaves=include_leaves))
 
-    def get_layer_info(self) -> Dict[str, str]:
+    def get_layer_info(self, include_leaves: bool = False) -> Dict[str, str]:
         target = self._get_hookable_model()
         info = {}
         for name, mod in target.named_modules():
-            if name and len(list(mod.children())) == 0:
+            if name and (include_leaves or not self._is_leaf(mod)):
                 info[name] = mod.__class__.__name__
         return info
 
@@ -155,5 +193,6 @@ class ModelAdapter(ABC):
         self,
         batch: Dict[str, Any],
         mode: str,
+        include_leaves: bool = False,
     ) -> Dict[str, torch.Tensor]:
         raise NotImplementedError("Override in subclass")

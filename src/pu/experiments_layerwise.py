@@ -104,6 +104,8 @@ def extract_all_layers(
     hf_token=None,
     upload=True,
     delete_after_upload=False,
+    include_leaves=False,
+    seed=42,
 ):
     """Extract embeddings from all layers of a model across a dataset.
 
@@ -113,7 +115,16 @@ def extract_all_layers(
 
     Saves one parquet per (model, size, dataset) to output_dir.
     Optionally uploads to HuggingFace Hub.
+
+    Args:
+        include_leaves: If True, extract from every leaf module (Linear, GELU, etc.)
+            in addition to block-level outputs. Default False (block-level / residual
+            stream only, matching upstream PRH methodology).
+        seed: Random seed for reproducibility. Default 42.
     """
+    from pu.models.base import set_seed
+    set_seed(seed)
+
     comp_mode = mode
     is_spectral_model = model_alias == "specformer"
     if is_spectral_model:
@@ -147,8 +158,9 @@ def extract_all_layers(
             print(f"[skip] {model_alias} {size} does not support layerwise extraction")
             continue
 
-        num_layers = adapter.get_num_layers()
-        print(f"[{model_alias} {size}] {num_layers} hookable modules, extracting on {comp_mode}...")
+        num_layers = adapter.get_num_layers(include_leaves=include_leaves)
+        mode_str = "all modules" if include_leaves else "block-level"
+        print(f"[{model_alias} {size}] {num_layers} {mode_str} extraction points on {comp_mode}...")
 
         processor = adapter.get_preprocessor(modes, resize=resize, resize_mode=resize_mode)
 
@@ -183,7 +195,7 @@ def extract_all_layers(
                             torch.tensor(np.array(batch["embedding"])).T
                         )
                     else:
-                        batch_layers = adapter.embed_all_layers_for_mode(batch, m)
+                        batch_layers = adapter.embed_all_layers_for_mode(batch, m, include_leaves=include_leaves)
                         if m not in layer_embs:
                             layer_embs[m] = {k: [] for k in batch_layers}
                         for k, emb in batch_layers.items():

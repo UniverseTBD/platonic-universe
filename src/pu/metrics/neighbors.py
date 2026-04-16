@@ -11,10 +11,29 @@ from scipy.stats import spearmanr, pearsonr
 from pu.metrics._base import validate_inputs
 
 
+def _truncate_outliers(Z: NDArray[np.floating], percentile: float) -> NDArray[np.floating]:
+    """Truncate feature values above the given percentile.
+
+    Following Huh et al. (2024), transformer activations have "emergent outliers"
+    (Dettmers et al., 2022) — a few dimensions with extreme values that dominate
+    distance computation. Clipping to the Nth percentile removes their influence.
+
+    Args:
+        Z: (n_samples, d) embedding matrix
+        percentile: Percentile threshold (e.g. 95). Values above this are clipped.
+
+    Returns:
+        Clipped embedding matrix (same shape).
+    """
+    threshold = np.percentile(np.abs(Z), percentile)
+    return np.clip(Z, -threshold, threshold)
+
+
 def mknn(
     Z1: NDArray[np.floating],
     Z2: NDArray[np.floating],
     k: int = 10,
+    truncate_percentile: float = 95,
 ) -> float:
     """
     Mutual k-Nearest Neighbors overlap.
@@ -27,6 +46,9 @@ def mknn(
         Z1: (n_samples, d1) embedding matrix
         Z2: (n_samples, d2) embedding matrix
         k: Number of nearest neighbors
+        truncate_percentile: Clip feature values above this percentile to
+            remove emergent outliers (Huh et al., 2024). Set to 100 to disable.
+            Default: 95 (matches upstream PRH paper).
 
     Returns:
         float in [0, 1] where 1 = identical neighbor sets
@@ -35,6 +57,10 @@ def mknn(
         Uses cosine distance for neighbor computation.
     """
     Z1, Z2 = validate_inputs(Z1, Z2)
+
+    if truncate_percentile < 100:
+        Z1 = _truncate_outliers(Z1, truncate_percentile)
+        Z2 = _truncate_outliers(Z2, truncate_percentile)
 
     n = Z1.shape[0]
     if k >= n:
