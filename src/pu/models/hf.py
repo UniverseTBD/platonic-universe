@@ -10,7 +10,6 @@ from transformers import (
     AutoVideoProcessor,
     CLIPModel,
     CLIPProcessor,
-    HieraModel,
 )
 
 from pu.models.base import ModelAdapter
@@ -47,9 +46,7 @@ class HFAdapter(ModelAdapter):
         else:
             self.processor = AutoImageProcessor.from_pretrained(self.model_name)
 
-        if self.alias == "hiera":
-            self.model = HieraModel.from_pretrained(self.model_name).to("cuda").eval()
-        elif self.alias == "clip":
+        if self.alias == "clip":
             self.model = CLIPModel.from_pretrained(self.model_name).to("cuda").eval()
         else:
             self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
@@ -88,9 +85,7 @@ class HFAdapter(ModelAdapter):
                     emb = outputs[:, 0]
                 elif self.alias == "dinov3":
                     emb = outputs[:, 0, :]
-                elif self.alias in ("ijepa", "vjepa", "hiera"):
-                    #  Hiera output is (B, 49, C).
-                    # We pool over the sequence dimension (dim=1).
+                elif self.alias in ("ijepa", "vjepa"):
                     emb = outputs.mean(dim=1)
                 else:
                     # Default fallback: mean over token dim excluding CLS if present
@@ -309,7 +304,7 @@ class VLMAdapter(HFAdapter):
 
 
 # Register this adapter for the HF-style aliases used by the repo
-for alias in ("vit", "dino", "dinov3", "convnext", "ijepa", "vjepa", "vit-mae", "hiera", "clip"):
+for alias in ("vit", "dino", "dinov3", "convnext", "ijepa", "vjepa", "vit-mae", "clip"):
     register_adapter(alias, HFAdapter)
 
 # VLM aliases — PaliGemma2 sizes
