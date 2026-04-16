@@ -356,38 +356,39 @@ class TestLayerwiseExtraction:
             )
             break
 
-    def test_extraction_returns_many_modules(self, adapter, modes):
-        """Generic extraction must return many leaf modules, not just a few."""
+    def test_extraction_returns_block_level_modules(self, adapter, modes):
+        """Default extraction returns block-level (residual stream) modules."""
         self._skip_if_no_layerwise(adapter)
 
         layer_names = adapter.get_layer_names()
         num_layers = adapter.get_num_layers()
 
-        # ViT-base has 137 leaf modules — we should get most of them
-        assert num_layers > 100, (
-            f"Expected >100 extraction points for ViT-base, got {num_layers}"
+        # ViT-base: ~76 block-level modules (embeddings, encoder.layer.N, encoder.layer.N.attention, etc.)
+        assert num_layers > 50, (
+            f"Expected >50 block-level extraction points for ViT-base, got {num_layers}"
         )
         assert len(layer_names) == num_layers
 
-        # Verify we see specific expected modules
+        # Verify we see block-level modules
         names_str = " ".join(layer_names)
-        assert "encoder.layer.0.attention.attention.query" in names_str
-        assert "encoder.layer.0.intermediate.dense" in names_str
+        assert "encoder.layer.0" in names_str
         assert "encoder.layer.11" in names_str
-        assert "layernorm" in names_str
+        assert "last_hidden_state" in names_str
+
+        # With include_leaves, should get many more
+        leaf_names = adapter.get_layer_names(include_leaves=True)
+        assert len(leaf_names) > 200, (
+            f"Expected >200 with leaves for ViT-base, got {len(leaf_names)}"
+        )
 
         ds = _stream_dataset("desi", adapter, modes, 4)
         dl = DataLoader(ds, batch_size=4, num_workers=0)
 
         for batch in dl:
             layer_embs = adapter.embed_all_layers_for_mode(batch, "hsc")
-            # All returned keys should be in layer_names
             for key in layer_embs:
                 assert key in layer_names, f"Unexpected key '{key}' not in layer_names"
-            # Most leaf modules should produce outputs
-            assert len(layer_embs) > 100, (
-                f"Expected >100 extracted modules, got {len(layer_embs)}"
-            )
+            assert len(layer_embs) > 50
             break
 
     def test_all_outputs_are_valid_tensors(self, adapter, modes):
@@ -440,15 +441,15 @@ class TestLayerwiseExtraction:
                 )
             break
 
-    def test_query_and_value_differ(self, adapter, modes):
-        """Q and V projections within the same block must differ."""
+    def test_query_and_value_differ_with_leaves(self, adapter, modes):
+        """Q and V projections within the same block must differ (requires include_leaves)."""
         self._skip_if_no_layerwise(adapter)
 
         ds = _stream_dataset("desi", adapter, modes, 4)
         dl = DataLoader(ds, batch_size=4, num_workers=0)
 
         for batch in dl:
-            layer_embs = adapter.embed_all_layers_for_mode(batch, "hsc")
+            layer_embs = adapter.embed_all_layers_for_mode(batch, "hsc", include_leaves=True)
 
             q_key = "encoder.layer.0.attention.attention.query"
             v_key = "encoder.layer.0.attention.attention.value"
