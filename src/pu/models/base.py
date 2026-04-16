@@ -84,7 +84,11 @@ class ModelAdapter(ABC):
         model: Optional[nn.Module] = None,
         pool_fn: Optional[Callable] = None,
     ) -> Dict[str, torch.Tensor]:
-        """Hook every leaf module, run a forward pass, return pooled outputs.
+        """Hook every module (leaf + block-level), run a forward pass, return pooled outputs.
+
+        Captures both branch activations (leaf modules like Linear, GELU) and
+        residual stream states (block modules like encoder.layer.0). Column names
+        make it clear which is which.
 
         Args:
             forward_fn: Callable that triggers the model forward pass.
@@ -99,11 +103,11 @@ class ModelAdapter(ABC):
         results = {}
         hooks = []
 
-        # Collect leaf module names in named_modules() order (deterministic DFS)
-        leaf_names = []
+        # Collect all module names in named_modules() order (deterministic DFS)
+        all_names = []
         for name, mod in target.named_modules():
-            if name and len(list(mod.children())) == 0:
-                leaf_names.append(name)
+            if name:
+                all_names.append(name)
 
         def _make_hook(name):
             def hook(module, input, output):
@@ -115,7 +119,7 @@ class ModelAdapter(ABC):
 
         try:
             for name, mod in target.named_modules():
-                if name and len(list(mod.children())) == 0:
+                if name:
                     h = mod.register_forward_hook(_make_hook(name))
                     hooks.append(h)
 
@@ -127,17 +131,17 @@ class ModelAdapter(ABC):
 
         # Reorder results to match named_modules() DFS order
         ordered = {}
-        for name in leaf_names:
+        for name in all_names:
             if name in results:
                 ordered[name] = results[name]
         return ordered
 
     def get_layer_names(self) -> List[str]:
-        """Return ordered list of all hookable leaf module names."""
+        """Return ordered list of all hookable module names (leaf + block-level)."""
         target = self._get_hookable_model()
         return [
             name for name, mod in target.named_modules()
-            if name and len(list(mod.children())) == 0
+            if name
         ]
 
     def get_num_layers(self) -> int:
