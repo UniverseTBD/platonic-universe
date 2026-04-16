@@ -68,22 +68,9 @@ MODEL_MAP = {
         ["015M", "095M", "850M"],
         ["Smith42/astroPT_v2.0" for _ in range(3)],
     ),
-    "sam2": (
-        ["tiny", "small", "base-plus", "large"],
-        [
-            "facebook/sam2.1-hiera-tiny",
-            "facebook/sam2.1-hiera-small",
-            "facebook/sam2.1-hiera-base-plus",
-            "facebook/sam2.1-hiera-large",
-        ],
-    ),
     "vit-mae": (
         ["base", "large", "huge"],
         [f"facebook/vit-mae-{s}" for s in ["base", "large", "huge"]],
-    ),
-    "hiera": (
-        ["tiny", "small", "base-plus", "large"],
-        [f"facebook/hiera-{s}-224-hf" for s in ["tiny", "small", "base-plus", "large"]],
     ),
     "paligemma": (
         ["3b", "10b", "28b"],
@@ -117,6 +104,8 @@ def extract_all_layers(
     hf_token=None,
     upload=True,
     delete_after_upload=False,
+    granularity="blocks",
+    seed=42,
 ):
     """Extract embeddings from all layers of a model across a dataset.
 
@@ -126,7 +115,18 @@ def extract_all_layers(
 
     Saves one parquet per (model, size, dataset) to output_dir.
     Optionally uploads to HuggingFace Hub.
+
+    Args:
+        granularity: Extraction granularity level:
+            - "blocks": Top-level blocks only (~14 for ViT-base). Default, matches upstream PRH.
+            - "residual": All non-leaf modules (~76 for ViT-base).
+            - "leaves": Leaf modules only (~137 for ViT-base).
+            - "all": Everything (~213 for ViT-base).
+        seed: Random seed for reproducibility. Default 42.
     """
+    from pu.models.base import set_seed
+    set_seed(seed)
+
     comp_mode = mode
     is_spectral_model = model_alias == "specformer"
     if is_spectral_model:
@@ -160,8 +160,8 @@ def extract_all_layers(
             print(f"[skip] {model_alias} {size} does not support layerwise extraction")
             continue
 
-        num_layers = adapter.get_num_layers()
-        print(f"[{model_alias} {size}] {num_layers} hookable modules, extracting on {comp_mode}...")
+        num_layers = adapter.get_num_layers(granularity=granularity)
+        print(f"[{model_alias} {size}] {num_layers} extraction points ({granularity}) on {comp_mode}...")
 
         processor = adapter.get_preprocessor(modes, resize=resize, resize_mode=resize_mode)
 
@@ -196,7 +196,7 @@ def extract_all_layers(
                             torch.tensor(np.array(batch["embedding"])).T
                         )
                     else:
-                        batch_layers = adapter.embed_all_layers_for_mode(batch, m)
+                        batch_layers = adapter.embed_all_layers_for_mode(batch, m, granularity=granularity)
                         if m not in layer_embs:
                             layer_embs[m] = {k: [] for k in batch_layers}
                         for k, emb in batch_layers.items():

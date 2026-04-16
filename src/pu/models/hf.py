@@ -10,7 +10,6 @@ from transformers import (
     AutoVideoProcessor,
     CLIPModel,
     CLIPProcessor,
-    HieraModel,
 )
 
 from pu.models.base import ModelAdapter
@@ -47,9 +46,7 @@ class HFAdapter(ModelAdapter):
         else:
             self.processor = AutoImageProcessor.from_pretrained(self.model_name)
 
-        if self.alias == "hiera":
-            self.model = HieraModel.from_pretrained(self.model_name).to("cuda").eval()
-        elif self.alias == "clip":
+        if self.alias == "clip":
             self.model = CLIPModel.from_pretrained(self.model_name).to("cuda").eval()
         else:
             self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
@@ -88,9 +85,7 @@ class HFAdapter(ModelAdapter):
                     emb = outputs[:, 0]
                 elif self.alias == "dinov3":
                     emb = outputs[:, 0, :]
-                elif self.alias in ("ijepa", "vjepa", "hiera"):
-                    #  Hiera output is (B, 49, C).
-                    # We pool over the sequence dimension (dim=1).
+                elif self.alias in ("ijepa", "vjepa"):
                     emb = outputs.mean(dim=1)
                 else:
                     # Default fallback: mean over token dim excluding CLS if present
@@ -102,8 +97,8 @@ class HFAdapter(ModelAdapter):
     def supports_layerwise(self) -> bool:
         return True
 
-    def get_layer_names(self) -> list:
-        names = super().get_layer_names()
+    def get_layer_names(self, granularity: str = "blocks") -> list:
+        names = super().get_layer_names(granularity=granularity)
         names.append("last_hidden_state")
         if self.alias in _CLIP_FAMILY:
             names.append("visual_projection")
@@ -129,6 +124,7 @@ class HFAdapter(ModelAdapter):
         self,
         batch: Dict[str, Any],
         mode: str,
+        granularity: str = "blocks",
     ) -> Dict[str, torch.Tensor]:
         inputs = batch[f"{mode}"].to("cuda")
         hookable = self._get_hookable_model()
@@ -142,7 +138,9 @@ class HFAdapter(ModelAdapter):
             if hasattr(out, 'last_hidden_state') and out.last_hidden_state is not None:
                 model_output['last_hidden_state'] = out.last_hidden_state
 
-        results = self._capture_all_leaf_outputs(forward_fn, model=hookable, pool_fn=self._model_pool)
+        results = self._capture_module_outputs(
+            forward_fn, model=hookable, pool_fn=self._model_pool, granularity=granularity
+        )
 
         # Add last_hidden_state as an explicit entry — guarantees exact match with embed_for_mode
         if 'last_hidden_state' in model_output:
@@ -198,8 +196,8 @@ class VLMAdapter(HFAdapter):
     def _get_hookable_model(self) -> nn.Module:
         return self.model
 
-    def get_layer_names(self) -> list:
-        names = super(HFAdapter, self).get_layer_names()  # base class (leaf modules)
+    def get_layer_names(self, granularity: str = "blocks") -> list:
+        names = super(HFAdapter, self).get_layer_names(granularity=granularity)
         names.append("hidden_states_last")
         return names
 
@@ -276,6 +274,7 @@ class VLMAdapter(HFAdapter):
         self,
         batch: Dict[str, Any],
         mode: str,
+        granularity: str = "blocks",
     ) -> Dict[str, torch.Tensor]:
         input_ids, pv, attn_mask = self._prepare_vlm_inputs(batch, mode)
         seq_len = attn_mask.shape[1]
@@ -297,7 +296,9 @@ class VLMAdapter(HFAdapter):
             if hasattr(out, "hidden_states") and out.hidden_states is not None:
                 model_output["hidden_states_last"] = out.hidden_states[-1]
 
-        results = self._capture_all_leaf_outputs(forward_fn, pool_fn=pool_fn)
+        results = self._capture_module_outputs(
+            forward_fn, pool_fn=pool_fn, granularity=granularity
+        )
 
         # Add final hidden state with masked pooling — bit-identical to embed_for_mode
         if "hidden_states_last" in model_output:
@@ -309,7 +310,7 @@ class VLMAdapter(HFAdapter):
 
 
 # Register this adapter for the HF-style aliases used by the repo
-for alias in ("vit", "dino", "dinov3", "convnext", "ijepa", "vjepa", "vit-mae", "hiera", "clip"):
+for alias in ("vit", "dino", "dinov3", "convnext", "ijepa", "vjepa", "vit-mae", "clip"):
     register_adapter(alias, HFAdapter)
 
 # VLM aliases — PaliGemma2 sizes
