@@ -33,7 +33,7 @@ def mknn(
     Z1: NDArray[np.floating],
     Z2: NDArray[np.floating],
     k: int = 10,
-    truncate_percentile: float = 95,
+    truncate_percentile: float = 100,
 ) -> float:
     """
     Mutual k-Nearest Neighbors overlap.
