@@ -216,14 +216,19 @@ def extract_all_layers(
             cat = torch.cat(tensors).numpy()
             columns[col_name] = cat
 
-        # Verify all columns have the same row count
-        row_counts = {k: v.shape[0] for k, v in columns.items()}
-        unique_counts = set(row_counts.values())
-        if len(unique_counts) > 1:
-            print(f"[ERROR] Row count mismatch: {row_counts}")
-            continue
+        # Drop hooks that returned shapes without a batch dim (e.g. DinoV3's
+        # rope_embeddings outputs (seq_len, dim), so rows = batches × seq_len).
+        # The majority row count is the correct one — anything else is garbage.
+        if columns:
+            from collections import Counter
+            counts = Counter(v.shape[0] for v in columns.values())
+            expected = counts.most_common(1)[0][0]
+            dropped = [k for k, v in columns.items() if v.shape[0] != expected]
+            for k in dropped:
+                print(f"[drop] {k}: {columns[k].shape[0]} rows (expected {expected})")
+                del columns[k]
 
-        n_samples = list(row_counts.values())[0] if row_counts else 0
+        n_samples = next(iter(columns.values())).shape[0] if columns else 0
         print(f"[{model_alias} {size}] {n_samples} samples, {len(columns)} columns")
 
         df = pl.DataFrame({
