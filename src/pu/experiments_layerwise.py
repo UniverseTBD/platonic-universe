@@ -188,13 +188,15 @@ def extract_all_layers(
             for batch in tqdm(dl, desc=f"{model_alias} {size}"):
                 for m in modes:
                     if m == "desi":
-                        precomputed.setdefault(m, []).append(
-                            torch.tensor(np.array(batch["embeddings"])).T
-                        )
+                        emb = batch["embeddings"]
+                        if not isinstance(emb, torch.Tensor):
+                            emb = torch.as_tensor(np.asarray(emb))
+                        precomputed.setdefault(m, []).append(emb)
                     elif m == "sdss":
-                        precomputed.setdefault(m, []).append(
-                            torch.tensor(np.array(batch["embedding"])).T
-                        )
+                        emb = batch["embedding"]
+                        if not isinstance(emb, torch.Tensor):
+                            emb = torch.as_tensor(np.asarray(emb))
+                        precomputed.setdefault(m, []).append(emb)
                     else:
                         batch_layers = adapter.embed_all_layers_for_mode(batch, m, granularity=granularity)
                         if m not in layer_embs:
