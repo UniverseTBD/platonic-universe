@@ -69,9 +69,11 @@ class PreprocessHF:
                 if "pixel_values" in proc_out:
                     result[f"{mode}"] = proc_out["pixel_values"].squeeze()
                 elif "pixel_values_videos" in proc_out:
-                    result[f"{mode}"] = proc_out["pixel_values_videos"].repeat(
-                        1, 16, 1, 1, 1
-                    ).squeeze()
+                    # Store only the unexpanded single-frame tensor.
+                    # The 16× temporal repeat happens in the adapter forward
+                    # — keeping it out of the Arrow cache prevents RAM blowup
+                    # and pyarrow int32 list-offset overflow on large datasets.
+                    result[f"{mode}"] = proc_out["pixel_values_videos"].squeeze(0)
                 else:
                     raise KeyError(
                         "autoproc does not have 'pixel_values' or "
