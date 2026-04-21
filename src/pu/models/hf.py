@@ -67,9 +67,27 @@ class HFAdapter(ModelAdapter):
     def get_preprocessor(self, modes: Iterable[str], resize: bool = False, resize_mode: str = "fill"):
         return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
+    _VJEPA_NUM_FRAMES = 16
+
+    def _maybe_expand_video_frames(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Expand single-frame video tensors to the 16-frame clip vjepa expects.
+
+        PreprocessHF caches one frame per sample to keep Arrow storage small;
+        the temporal repeat is applied here so the model sees its usual input.
+        """
+        if self.alias != "vjepa":
+            return inputs
+        # Dataloader gives (B, T, C, H, W). T should be 1 after the preprocessor
+        # fix; repeat along the temporal dim to reach _VJEPA_NUM_FRAMES.
+        if inputs.dim() == 5 and inputs.shape[1] < self._VJEPA_NUM_FRAMES:
+            reps = self._VJEPA_NUM_FRAMES // inputs.shape[1]
+            inputs = inputs.repeat(1, reps, 1, 1, 1)
+        return inputs
+
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         # batch is a dict produced by the DataLoader; HF preprocess stores tensors under f"{mode}"
         inputs = batch[f"{mode}"].to("cuda")
+        inputs = self._maybe_expand_video_frames(inputs)
         with torch.no_grad():
             # Use AMP if enabled for faster inference with lower memory
             with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
@@ -127,6 +145,7 @@ class HFAdapter(ModelAdapter):
         granularity: str = "blocks",
     ) -> Dict[str, torch.Tensor]:
         inputs = batch[f"{mode}"].to("cuda")
+        inputs = self._maybe_expand_video_frames(inputs)
         hookable = self._get_hookable_model()
         model_output = {}
 
