@@ -19,6 +19,28 @@ from pu.preprocess import PreprocessHF
 _CLIP_FAMILY = {"clip"}
 
 
+def _clip_image_features(model, pixel_values: torch.Tensor) -> torch.Tensor:
+    """Run ``model.get_image_features`` and return the projected feature tensor.
+
+    transformers 4.x returns the projected ``(B, projection_dim)`` tensor
+    directly. transformers >=5 wraps it in ``BaseModelOutputWithPooling``,
+    where the same tensor lives in ``pooler_output``. Callers downstream of
+    this helper assume a plain ``torch.Tensor``.
+    """
+    out = model.get_image_features(pixel_values=pixel_values)
+    if isinstance(out, torch.Tensor):
+        return out
+    for attr in ("pooler_output", "image_embeds", "last_hidden_state"):
+        v = getattr(out, attr, None)
+        if isinstance(v, torch.Tensor):
+            return v
+    raise TypeError(
+        f"CLIPModel.get_image_features returned {type(out).__name__} with "
+        "no recognizable image-feature tensor field "
+        "(pooler_output / image_embeds / last_hidden_state)."
+    )
+
+
 class HFAdapter(ModelAdapter):
     """
     Adapter for HuggingFace vision models using AutoModel + AutoImageProcessor.
@@ -92,7 +114,7 @@ class HFAdapter(ModelAdapter):
             # Use AMP if enabled for faster inference with lower memory
             with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
                 if self.alias == "clip":
-                    outputs = self.model.get_image_features(pixel_values=inputs)
+                    outputs = _clip_image_features(self.model, inputs)
                     return outputs.float().detach()
                 outputs = self.model(inputs).last_hidden_state
                 if self.alias in ("vit", "vit-mae"):
@@ -170,7 +192,7 @@ class HFAdapter(ModelAdapter):
         if self.alias in _CLIP_FAMILY and hasattr(self.model, 'visual_projection'):
             with torch.no_grad():
                 with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
-                    projected = self.model.get_image_features(pixel_values=inputs)
+                    projected = _clip_image_features(self.model, inputs)
             results["visual_projection"] = projected.float().detach()
 
         return results
@@ -247,6 +269,11 @@ class VLMAdapter(HFAdapter):
         B = pv.shape[0]
         prompt = self._PROMPTS.get(self.alias, " ")
         pv_cpu = pv.cpu().float()
+        # llava-onevision returns multi-patch pixel_values shaped
+        # (B, P, C, H, W); take the canonical first patch since the
+        # processor below re-tiles from a single PIL image anyway.
+        if pv_cpu.dim() == 5:
+            pv_cpu = pv_cpu[:, 0]
         pv_cpu = (pv_cpu - pv_cpu.min()) / (pv_cpu.max() - pv_cpu.min() + 1e-8)
         pv_cpu = (pv_cpu * 255).byte()
         pil_images = [
