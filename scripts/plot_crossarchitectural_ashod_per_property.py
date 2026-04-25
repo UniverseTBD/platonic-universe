@@ -26,17 +26,17 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from plot_crossarchitectural_ashod import (  # noqa: E402
     DEFAULT_R2_JSON,
     FAMILY_STYLE,
-    K_MAIN,
+    METHODS,
     MODALITIES,
-    MODALITY_LABEL,
     MODELS,
     N_SUB,
     R2_PROPS,
     SEED,
     assert_aligned,
-    compute_or_load_cka,
-    compute_or_load_mknn,
+    compute_or_load_matrices,
     load_r2_json,
+    method_suffix,
+    metric_axis_label,
     resolve_models,
     r2_for_model_prop,
 )
@@ -83,7 +83,8 @@ def _make_figure(
     families: list[str],
     models: list[tuple[str, str, Path]],
     r2: dict,
-    metric_label: str,
+    metric: str,
+    method: str,
     modality: str,
     out_name: str,
 ) -> None:
@@ -94,15 +95,14 @@ def _make_figure(
         sharey=False, squeeze=False,
     )
 
-    x_pct = mean_x * 100.0
+    scale = 100.0 if method == "compare" else 1.0
+    x_scaled = mean_x * scale
     for j, prop in enumerate(R2_PROPS):
         ax = axes[0, j]
         y = np.array([r2_for_model_prop(r2, f, s, prop) for f, s, _ in models])
-        plot_panel(ax, x_pct, y, families)
+        plot_panel(ax, x_scaled, y, families)
 
-        ax.set_xlabel(
-            f"{MODALITY_LABEL[modality]} [cross-arch {metric_label} %]", fontsize=10,
-        )
+        ax.set_xlabel(metric_axis_label(modality, metric, method), fontsize=10)
         ax.set_ylabel(rf"{PROP_LABEL[prop]} $[R^2]$ ", fontsize=10)
 
     seen: dict[str, object] = {}
@@ -133,8 +133,11 @@ def main():
     parser.add_argument("--r2-json", type=Path, default=DEFAULT_R2_JSON)
     parser.add_argument("--n-sub", type=int, default=N_SUB,
                         help="Number of galaxies to subsample")
+    parser.add_argument("--method", choices=METHODS, default="compare",
+                        help="Metric backend: raw (compare) or "
+                             "permutation-calibrated (calibrate)")
     parser.add_argument("--recompute", action="store_true",
-                        help="Ignore MKNN/CKA caches and recompute them")
+                        help="Ignore cached matrices and recompute them")
     parser.add_argument("--exclude-families", nargs="+", default=["dinov3"],
                         metavar="FAMILY",
                         help=f"Family names to drop (valid: "
@@ -160,26 +163,27 @@ def main():
     rng = np.random.default_rng(SEED)
     idx = np.sort(rng.choice(n_full, size=n_sub, replace=False))
     print(f"Subsampling {n_sub} rows (seed={SEED}).")
+    print(f"Metric method: {args.method}")
 
     labels = [f"{f}_{s}" for f, s, _ in models]
     families = [f for f, s, _ in models]
 
+    suffix = method_suffix(args.method)
     for modality in MODALITIES:
-        mknn_mats = compute_or_load_mknn(models, labels, idx, args.recompute, modality)
-        cka_mat = compute_or_load_cka(models, labels, idx, args.recompute, modality)
-        x_mknn = np.nanmean(mknn_mats[K_MAIN], axis=1)
-        x_cka = np.nanmean(cka_mat, axis=1)
+        mats = compute_or_load_matrices(
+            models, labels, idx, args.recompute, modality, args.method,
+        )
+        x_mknn = np.nanmean(mats["mknn"], axis=1)
+        x_cka = np.nanmean(mats["cka"], axis=1)
         _make_figure(
             x_mknn, families, models, r2,
-            metric_label="MKNN",
-            modality=modality,
-            out_name=f"crossarchitectural_ashod_per_property_{modality}.pdf",
+            metric="mknn", method=args.method, modality=modality,
+            out_name=f"crossarchitectural_ashod_per_property_{modality}{suffix}.pdf",
         )
         _make_figure(
             x_cka, families, models, r2,
-            metric_label="CKA",
-            modality=modality,
-            out_name=f"crossarchitectural_ashod_cka_per_property_{modality}.pdf",
+            metric="cka", method=args.method, modality=modality,
+            out_name=f"crossarchitectural_ashod_cka_per_property_{modality}{suffix}.pdf",
         )
 
 

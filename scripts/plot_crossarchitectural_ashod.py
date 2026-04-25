@@ -18,11 +18,17 @@ physics information.
 
 Complements ``plot_intramodal_ashod.py`` (same-family scaling) and
 ``plot_crossmodal_ashod.py`` (same-model across modalities).
+
+Metric computation is delegated to ``pu.metrics``: use ``--method
+compare`` (default) for raw MKNN/CKA or ``--method calibrate`` for
+permutation-calibrated scores via ``pu.metrics.calibrate``.
 """
 
 import argparse
 import json
+import os
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import matplotlib
@@ -31,7 +37,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 from scipy.stats import pearsonr, spearmanr
-from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,7 +45,7 @@ FIGS_DIR = ROOT / "figs"
 JWST_DIR = DATA_DIR / "jwst"
 
 sys.path.insert(0, str(ROOT / "src"))
-from pu.metrics.kernel import cka  # noqa: E402
+from pu.metrics import METRICS_REGISTRY, calibrate, compare  # noqa: E402
 
 DEFAULT_R2_JSON = ROOT / "r2_vs_params_45000galaxies_upsampled.json"
 R2_PROPS = ("redshift", "mass", "sSFR")
@@ -48,18 +53,18 @@ R2_PROPS = ("redshift", "mass", "sSFR")
 MODALITIES = ("hsc", "jwst")
 MODALITY_LABEL = {"hsc": "HSC", "jwst": "JWST"}
 
-N_SUB = 10_000
-K_VALUES = (5, 10, 20)
+METHODS = ("compare", "calibrate")
+METRICS = ("mknn", "cka")
+
+N_SUB = 5_000
 K_MAIN = 10
+N_PERMUTATIONS = 200
 SEED = 0
 
 
-def _mknn_cache(modality: str) -> Path:
-    return DATA_DIR / f"mknn_matrix_{modality}.parquet"
+def _cache_path(method: str, modality: str) -> Path:
+    return DATA_DIR / f"crossarch_{method}_{modality}.parquet"
 
-
-def _cka_cache(modality: str) -> Path:
-    return DATA_DIR / f"cka_matrix_{modality}.parquet"
 
 # Explicit model list matching the pattern in plot_crossmodal_ashod.py.
 # Each entry is (family, json_size) — both are also the column-name tokens
@@ -159,136 +164,191 @@ def load_embeddings(
     return np.stack(df[col].to_list()).astype(np.float32, copy=False)
 
 
-def unit_normalize(Z: np.ndarray) -> np.ndarray:
-    norms = np.linalg.norm(Z, axis=1, keepdims=True)
-    norms = np.where(norms < 1e-12, 1.0, norms)
-    return Z / norms
+def _pair_scores(Zi: np.ndarray, Zj: np.ndarray, method: str) -> dict[str, float]:
+    """Return {"mknn": ..., "cka": ...} for a model pair using *method*."""
+    if method == "compare":
+        return compare(Zi, Zj, metrics=list(METRICS), mknn__k=K_MAIN)
+    if method == "calibrate":
+        from functools import partial
+
+        out: dict[str, float] = {}
+        for name in METRICS:
+            fn = METRICS_REGISTRY[name]
+            if name == "mknn":
+                fn = partial(fn, k=K_MAIN)
+            # Note: pu.metrics.calibrate forwards `seed` to the underlying
+            # calibrated_similarity package, which doesn't accept it.
+            result = calibrate(Zi, Zj, fn, n_permutations=N_PERMUTATIONS)
+            out[name] = float(result["calibrated_score"])
+        return out
+    raise ValueError(f"Unknown method: {method!r}")
 
 
-def compute_knn_indices(Z: np.ndarray, k: int) -> np.ndarray:
-    Zn = unit_normalize(Z)
-    return (
-        NearestNeighbors(n_neighbors=k, metric="euclidean", algorithm="brute")
-        .fit(Zn)
-        .kneighbors(return_distance=False)
-    )
+_WORKER_ZS: list[np.ndarray] | None = None
+_WORKER_METHOD: str | None = None
+_WORKER_BLAS_THREADS: int = 1
 
 
-def mknn_from_indices(nn1: np.ndarray, nn2: np.ndarray, k: int) -> float:
-    a = nn1[:, :k]
-    b = nn2[:, :k]
-    overlaps = np.fromiter(
-        (len(set(ai).intersection(bi)) for ai, bi in zip(a, b)),
-        dtype=np.int32,
-        count=a.shape[0],
-    )
-    return float(overlaps.mean() / k)
+def _worker_init(blas_threads: int) -> None:
+    """Pin BLAS / OpenMP / torch threads inside each worker.
+
+    Workers inherit Zs and the method string from the parent via fork, so
+    no initargs for them — avoids re-pickling the embedding stack.
+    ``blas_threads`` is passed explicitly so we can budget
+    workers × blas_threads ≈ physical cores.
+    """
+    try:
+        from threadpoolctl import threadpool_limits
+        threadpool_limits(blas_threads)
+    except ImportError:
+        pass
+    try:
+        import torch
+        torch.set_num_threads(blas_threads)
+    except ImportError:
+        pass
 
 
-def compute_mknn_matrix(
+def _worker_pair(ij: tuple[int, int]) -> tuple[int, int, dict[str, float]]:
+    i, j = ij
+    return i, j, _pair_scores(_WORKER_ZS[i], _WORKER_ZS[j], _WORKER_METHOD)
+
+
+def _available_cpus() -> int:
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return os.cpu_count() or 1
+
+
+def compute_metric_matrices(
     models: list[tuple[str, str, Path]],
     idx: np.ndarray,
     modality: str,
-) -> dict[int, np.ndarray]:
-    k_max = max(K_VALUES)
-    print(f"Computing kNN (k={k_max}, {modality}) "
-          f"for {len(models)} models on {idx.size} samples")
-    nn_indices: list[np.ndarray] = []
-    for family, json_size, path in tqdm(models, desc="kNN per model"):
-        Z = load_embeddings(family, json_size, path, modality)[idx]
-        nn_indices.append(compute_knn_indices(Z, k_max))
-
-    M = len(models)
-    mats = {k: np.full((M, M), np.nan, dtype=np.float64) for k in K_VALUES}
-    pairs = [(i, j) for i in range(M) for j in range(i + 1, M)]
-    print(f"Computing MKNN over {len(pairs)} model pairs")
-    for i, j in tqdm(pairs, desc="Pairwise MKNN"):
-        for k in K_VALUES:
-            v = mknn_from_indices(nn_indices[i], nn_indices[j], k)
-            mats[k][i, j] = v
-            mats[k][j, i] = v
-    return mats
-
-
-def compute_cka_matrix(
-    models: list[tuple[str, str, Path]],
-    idx: np.ndarray,
-    modality: str,
-) -> np.ndarray:
-    print(f"Loading embeddings for CKA ({modality}, "
-          f"{len(models)} models, {idx.size} samples)")
+    method: str,
+    workers: int = 1,
+    blas_threads: int | None = None,
+) -> dict[str, np.ndarray]:
+    """Compute pairwise MKNN + CKA matrices over *models* using *method*."""
+    print(f"Loading embeddings ({modality}, {len(models)} models, "
+          f"{idx.size} samples)")
     Zs: list[np.ndarray] = []
     for family, json_size, path in tqdm(models, desc="Embeddings"):
         Zs.append(load_embeddings(family, json_size, path, modality)[idx])
 
     M = len(models)
-    mat = np.full((M, M), np.nan, dtype=np.float64)
+    mats = {name: np.full((M, M), np.nan, dtype=np.float64) for name in METRICS}
     pairs = [(i, j) for i in range(M) for j in range(i + 1, M)]
-    print(f"Computing CKA over {len(pairs)} model pairs")
-    for i, j in tqdm(pairs, desc="Pairwise CKA"):
-        v = float(cka(Zs[i], Zs[j], kernel="linear"))
-        mat[i, j] = v
-        mat[j, i] = v
-    return mat
+    n_workers = max(1, min(workers, len(pairs)))
+    ncpu = _available_cpus()
+    if blas_threads is None:
+        blas_threads = max(1, ncpu // n_workers)
+    print(f"Computing {method} MKNN+CKA over {len(pairs)} model pairs "
+          f"({n_workers} worker{'s' if n_workers != 1 else ''}, "
+          f"{blas_threads} BLAS thread{'s' if blas_threads != 1 else ''} each; "
+          f"ncpu={ncpu})")
+
+    if n_workers == 1:
+        for i, j in tqdm(pairs, desc=f"Pairwise ({method})"):
+            scores = _pair_scores(Zs[i], Zs[j], method)
+            for name in METRICS:
+                v = float(scores[name]) if scores[name] is not None else np.nan
+                mats[name][i, j] = v
+                mats[name][j, i] = v
+        return mats
+
+    global _WORKER_ZS, _WORKER_METHOD
+    _WORKER_ZS = Zs
+    _WORKER_METHOD = method
+    with ProcessPoolExecutor(
+        max_workers=n_workers,
+        initializer=_worker_init,
+        initargs=(blas_threads,),
+    ) as ex:
+        for i, j, scores in tqdm(
+            ex.map(_worker_pair, pairs, chunksize=1),
+            total=len(pairs),
+            desc=f"Pairwise ({method}, x{n_workers})",
+        ):
+            for name in METRICS:
+                v = float(scores[name]) if scores[name] is not None else np.nan
+                mats[name][i, j] = v
+                mats[name][j, i] = v
+    return mats
 
 
-def mknn_matrix_to_df(
-    mats: dict[int, np.ndarray], labels: list[str]
+def matrices_to_df(
+    mats: dict[str, np.ndarray], labels: list[str]
 ) -> pl.DataFrame:
     rows = []
     M = len(labels)
-    for k, mat in mats.items():
+    for name, mat in mats.items():
         for i in range(M):
             for j in range(M):
                 if i == j:
                     continue
-                rows.append({"k": k, "model_i": labels[i], "model_j": labels[j],
-                             "mknn": mat[i, j]})
+                rows.append({
+                    "metric": name,
+                    "model_i": labels[i],
+                    "model_j": labels[j],
+                    "value": mat[i, j],
+                })
     return pl.DataFrame(rows)
 
 
-def df_to_mknn_matrix(
+def df_to_matrices(
     df: pl.DataFrame, labels: list[str]
-) -> dict[int, np.ndarray]:
+) -> dict[str, np.ndarray]:
     label_to_idx = {lab: i for i, lab in enumerate(labels)}
     M = len(labels)
-    mats: dict[int, np.ndarray] = {}
-    for k in sorted(df["k"].unique().to_list()):
-        sub = df.filter(pl.col("k") == k)
+    mats: dict[str, np.ndarray] = {}
+    for name in df["metric"].unique().to_list():
+        sub = df.filter(pl.col("metric") == name)
         mat = np.full((M, M), np.nan, dtype=np.float64)
         for row in sub.iter_rows(named=True):
             i = label_to_idx.get(row["model_i"])
             j = label_to_idx.get(row["model_j"])
             if i is None or j is None:
                 continue
-            mat[i, j] = row["mknn"]
-        mats[int(k)] = mat
+            mat[i, j] = row["value"]
+        mats[name] = mat
     return mats
 
 
-def cka_matrix_to_df(mat: np.ndarray, labels: list[str]) -> pl.DataFrame:
-    rows = []
-    M = len(labels)
-    for i in range(M):
-        for j in range(M):
-            if i == j:
-                continue
-            rows.append({"model_i": labels[i], "model_j": labels[j],
-                         "cka": mat[i, j]})
-    return pl.DataFrame(rows)
-
-
-def df_to_cka_matrix(df: pl.DataFrame, labels: list[str]) -> np.ndarray:
-    label_to_idx = {lab: i for i, lab in enumerate(labels)}
-    M = len(labels)
-    mat = np.full((M, M), np.nan, dtype=np.float64)
-    for row in df.iter_rows(named=True):
-        i = label_to_idx.get(row["model_i"])
-        j = label_to_idx.get(row["model_j"])
-        if i is None or j is None:
-            continue
-        mat[i, j] = row["cka"]
-    return mat
+def compute_or_load_matrices(
+    models: list[tuple[str, str, Path]],
+    labels: list[str],
+    idx: np.ndarray,
+    recompute: bool,
+    modality: str,
+    method: str,
+    workers: int = 1,
+    blas_threads: int | None = None,
+) -> dict[str, np.ndarray]:
+    cache = _cache_path(method, modality)
+    if cache.exists() and not recompute:
+        print(f"Loading cached {method} matrices ({modality}) from {cache}")
+        mats = df_to_matrices(pl.read_parquet(cache), labels)
+        missing_metrics = [m for m in METRICS if m not in mats]
+        missing_models = any(
+            np.all(np.isnan(mats[m]), axis=0).any() for m in mats
+        )
+        if missing_metrics or missing_models:
+            print(f"Cache incomplete (missing_metrics={missing_metrics}, "
+                  f"missing_models={missing_models}); recomputing")
+            mats = compute_metric_matrices(
+                models, idx, modality, method,
+                workers=workers, blas_threads=blas_threads,
+            )
+            matrices_to_df(mats, labels).write_parquet(cache)
+        return mats
+    mats = compute_metric_matrices(
+        models, idx, modality, method,
+        workers=workers, blas_threads=blas_threads,
+    )
+    matrices_to_df(mats, labels).write_parquet(cache)
+    print(f"Saved {method} matrices ({modality}) to {cache}")
+    return mats
 
 
 def load_r2_json(path: Path) -> dict:
@@ -320,55 +380,6 @@ def r2_for_model_prop(r2: dict, family: str, size: str, prop: str) -> float:
         raise KeyError(
             f"{family}/{size}/{prop} missing under 'hsc' in R² JSON"
         ) from e
-
-
-def compute_or_load_mknn(
-    models: list[tuple[str, str, Path]],
-    labels: list[str],
-    idx: np.ndarray,
-    recompute: bool,
-    modality: str,
-) -> dict[int, np.ndarray]:
-    cache = _mknn_cache(modality)
-    if cache.exists() and not recompute:
-        print(f"Loading cached MKNN matrix ({modality}) from {cache}")
-        mats = df_to_mknn_matrix(pl.read_parquet(cache), labels)
-        missing_ks = [k for k in K_VALUES if k not in mats]
-        missing_models = any(
-            np.all(np.isnan(mats[k]), axis=0).any() for k in mats
-        )
-        if missing_ks or missing_models:
-            print(f"Cache incomplete (missing_ks={missing_ks}, "
-                  f"missing_models={missing_models}); recomputing MKNN")
-            mats = compute_mknn_matrix(models, idx, modality)
-            mknn_matrix_to_df(mats, labels).write_parquet(cache)
-        return mats
-    mats = compute_mknn_matrix(models, idx, modality)
-    mknn_matrix_to_df(mats, labels).write_parquet(cache)
-    print(f"Saved MKNN matrix ({modality}) to {cache}")
-    return mats
-
-
-def compute_or_load_cka(
-    models: list[tuple[str, str, Path]],
-    labels: list[str],
-    idx: np.ndarray,
-    recompute: bool,
-    modality: str,
-) -> np.ndarray:
-    cache = _cka_cache(modality)
-    if cache.exists() and not recompute:
-        print(f"Loading cached CKA matrix ({modality}) from {cache}")
-        mat = df_to_cka_matrix(pl.read_parquet(cache), labels)
-        if np.all(np.isnan(mat), axis=0).any():
-            print(f"CKA cache ({modality}) incomplete; recomputing")
-            mat = compute_cka_matrix(models, idx, modality)
-            cka_matrix_to_df(mat, labels).write_parquet(cache)
-        return mat
-    mat = compute_cka_matrix(models, idx, modality)
-    cka_matrix_to_df(mat, labels).write_parquet(cache)
-    print(f"Saved CKA matrix ({modality}) to {cache}")
-    return mat
 
 
 def plot_scatter(
@@ -407,11 +418,23 @@ def plot_scatter(
     ax.set_ylabel(ylabel, fontsize=11)
 
 
+def metric_axis_label(modality: str, metric: str, method: str) -> str:
+    metric_label = metric.upper()
+    if method == "compare":
+        return f"{MODALITY_LABEL[modality]} [cross-arch {metric_label} %]"
+    return f"{MODALITY_LABEL[modality]} [cross-arch calibrated {metric_label}]"
+
+
+def method_suffix(method: str) -> str:
+    return "" if method == "compare" else f"_{method}"
+
+
 def _make_figure(
     x_per_modality: dict[str, np.ndarray],
     mean_y: np.ndarray,
     families: list[str],
-    metric_label: str,
+    metric: str,
+    method: str,
     out_name: str,
 ) -> None:
     modalities = list(x_per_modality)
@@ -424,13 +447,15 @@ def _make_figure(
     if n_panels == 1:
         axes = [axes]
 
+    scale = 100.0 if method == "compare" else 1.0
+
     for ax, modality in zip(axes, modalities):
         is_first = ax is axes[0]
         plot_scatter(
             ax,
-            x_per_modality[modality] * 100.0, mean_y,
+            x_per_modality[modality] * scale, mean_y,
             families,
-            xlabel=f"{MODALITY_LABEL[modality]} [cross-arch {metric_label} %]",
+            xlabel=metric_axis_label(modality, metric, method),
             ylabel="Mean $R^2$" if is_first else "",
         )
 
@@ -462,15 +487,29 @@ def main():
                         help="Path to Ashod's r2_vs_params JSON")
     parser.add_argument("--n-sub", type=int, default=N_SUB,
                         help="Number of galaxies to subsample")
+    parser.add_argument("--method", choices=METHODS, default="compare",
+                        help="Metric backend: raw (compare) or "
+                             "permutation-calibrated (calibrate)")
     parser.add_argument("--recompute", action="store_true",
-                        help="Ignore MKNN/CKA caches and recompute them")
+                        help="Ignore cached matrices and recompute them")
     parser.add_argument("--check-alignment", action="store_true",
                         help="Only verify all parquets have the same row count and exit")
     parser.add_argument("--exclude-families", nargs="+", default=["dinov3"],
                         metavar="FAMILY",
                         help=f"Family names to drop (valid: "
                              f"{sorted(FAMILY_STYLE)})")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="Parallel workers for the pairwise metric loop. "
+                             "Default: min(8, ncpu // 2). Set 1 to disable "
+                             "multiprocessing.")
+    parser.add_argument("--blas-threads", type=int, default=None,
+                        help="BLAS / OpenMP / torch threads per worker. "
+                             "Default: ncpu // workers so the product ≈ ncpu.")
     args = parser.parse_args()
+
+    ncpu = _available_cpus()
+    if args.workers is None:
+        args.workers = max(1, min(8, ncpu // 2))
 
     FIGS_DIR.mkdir(exist_ok=True)
     DATA_DIR.mkdir(exist_ok=True)
@@ -504,28 +543,31 @@ def main():
     rng = np.random.default_rng(SEED)
     idx = np.sort(rng.choice(n_full, size=n_sub, replace=False))
     print(f"Subsampling {n_sub} rows (seed={SEED}).")
+    print(f"Metric method: {args.method}")
 
     labels = [f"{f}_{s}" for f, s, _ in models]
     families = [f for f, s, _ in models]
     y = np.array([r2_for_model(r2, f, s) for f, s, _ in models])
 
-    x_mknn: dict[str, np.ndarray] = {}
-    x_cka: dict[str, np.ndarray] = {}
+    x_per_metric: dict[str, dict[str, np.ndarray]] = {m: {} for m in METRICS}
     for modality in MODALITIES:
-        mknn_mats = compute_or_load_mknn(models, labels, idx, args.recompute, modality)
-        x_mknn[modality] = np.nanmean(mknn_mats[K_MAIN], axis=1)
-        cka_mat = compute_or_load_cka(models, labels, idx, args.recompute, modality)
-        x_cka[modality] = np.nanmean(cka_mat, axis=1)
+        mats = compute_or_load_matrices(
+            models, labels, idx, args.recompute, modality, args.method,
+            workers=args.workers, blas_threads=args.blas_threads,
+        )
+        for name in METRICS:
+            x_per_metric[name][modality] = np.nanmean(mats[name], axis=1)
 
+    suffix = method_suffix(args.method)
     _make_figure(
-        x_mknn, y, families,
-        metric_label="MKNN",
-        out_name="crossarchitectural_ashod.pdf",
+        x_per_metric["mknn"], y, families,
+        metric="mknn", method=args.method,
+        out_name=f"crossarchitectural_ashod{suffix}.pdf",
     )
     _make_figure(
-        x_cka, y, families,
-        metric_label="CKA",
-        out_name="crossarchitectural_ashod_cka.pdf",
+        x_per_metric["cka"], y, families,
+        metric="cka", method=args.method,
+        out_name=f"crossarchitectural_ashod_cka{suffix}.pdf",
     )
 
 
