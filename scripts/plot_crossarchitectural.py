@@ -63,7 +63,7 @@ SEED = 0
 
 
 def _cache_path(method: str, modality: str) -> Path:
-    return DATA_DIR / f"crossarch_{method}_{modality}.parquet"
+    return DATA_DIR / f"crossarch_{method}_nodinov3_{modality}.parquet"
 
 
 # Explicit model list matching the pattern in plot_crossmodal.py.
@@ -404,7 +404,6 @@ def plot_scatter(
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.sum() >= 3:
         rho, p_rho = spearmanr(x[finite], y[finite])
-        r, p_r = pearsonr(x[finite], y[finite])
         ax.text(
             0.95, -0.01,
             f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
@@ -418,17 +417,13 @@ def plot_scatter(
         ax.plot(xfit, m * xfit + b, color="gray", lw=2, ls="--", zorder=0)
         ax.set_xlim(xlim)
 
-    ax.tick_params(axis="x", direction="in")
-    ax.tick_params(axis="y", direction="in")
     ax.set_xlabel(xlabel, fontsize=11)
     ax.set_ylabel(ylabel, fontsize=11)
 
 
 def metric_axis_label(modality: str, metric: str, method: str) -> str:
     metric_label = metric.upper()
-    if method == "compare":
-        return f"{MODALITY_LABEL[modality]} [cross-arch {metric_label} %]"
-    return f"{MODALITY_LABEL[modality]} [cross-arch calibrated {metric_label}]"
+    return f"{MODALITY_LABEL[modality]} [{metric_label} %]"
 
 
 def method_suffix(method: str) -> str:
@@ -446,20 +441,18 @@ def _make_figure(
     modalities = list(x_per_modality)
     n_panels = len(modalities)
     fig, axes = plt.subplots(
-        1, n_panels,
-        figsize=(4.2 * n_panels, 3.6),
-        sharey=True,
+        1, n_panels, figsize=(6, 2.5), sharey=True,
     )
     if n_panels == 1:
         axes = [axes]
 
-    scale = 100.0 if method == "compare" else 1.0
 
     for ax, modality in zip(axes, modalities):
         is_first = ax is axes[0]
+
         plot_scatter(
             ax,
-            x_per_modality[modality] * scale, mean_y,
+            x_per_modality[modality] * 100.0, mean_y,
             families,
             xlabel=metric_axis_label(modality, metric, method),
             ylabel="Mean $R^2$" if is_first else "",
@@ -467,16 +460,18 @@ def _make_figure(
 
     seen: dict[str, object] = {}
     for ax in axes:
+        ax.tick_params(axis="x",direction="in")
+        ax.tick_params(axis="y",direction="in")
         for h, lab in zip(*ax.get_legend_handles_labels()):
             if lab not in seen:
                 seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
-        loc="upper center", fontsize=9, ncol=len(seen),
+        loc="upper center", fontsize=9, ncol=len(seen)//2,
         columnspacing=0.55,
-        bbox_to_anchor=(0.52, 1.08),
+        bbox_to_anchor=(0.52, 1.15),
         handletextpad=0.1,
-        frameon=False,
+        frameon=False
     )
 
     fig.tight_layout()

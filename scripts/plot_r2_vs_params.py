@@ -140,26 +140,27 @@ def plot_scatter(
         ax.scatter(
             x[mask], y[mask],
             color=style["color"], marker=style["marker"],
-            s=70, label=style["label"], edgecolors="black", linewidths=0.4,
+            s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
 
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.sum() >= 3:
-        # Spearman is rank-based, so log-x doesn't change it; report as-is.
         rho, p_rho = spearmanr(x[finite], y[finite])
-        r, p_r = pearsonr(np.log10(x[finite]), y[finite])
         ax.text(
             0.95, -0.01,
             f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
             transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
             bbox=None,
         )
+        ax.set_xscale("log")
+
         log_x = np.log10(x[finite])
         m, b = np.polyfit(log_x, y[finite], 1)
-        xfit = np.logspace(log_x.min(), log_x.max(), 200)
-        ax.plot(xfit, m * np.log10(xfit) + b, color="gray", lw=1, ls="--", zorder=0)
+        xlim = ax.get_xlim()
+        xfit = np.linspace(xlim[0], xlim[1], 200)
+        ax.plot(xfit, m * np.log10(xfit) + b, color="gray", lw=2, ls="--", zorder=0)
+        ax.set_xlim(xlim)
 
-    ax.set_xscale("log")
     ax.set_xlabel(xlabel, fontsize=11)
     ax.set_ylabel(ylabel, fontsize=11)
 
@@ -178,7 +179,7 @@ def make_figure(
 
     n_panels = len(modalities)
     fig, axes = plt.subplots(
-        1, n_panels, figsize=(8, 3.0)#, sharey=True,
+        1, n_panels, figsize=(6, 2.5), sharey=False,
     )
     if n_panels == 1:
         axes = [axes]
@@ -199,6 +200,7 @@ def make_figure(
                 szs.append(size)
 
         is_first = ax is axes[0]
+
         plot_scatter(
             ax,
             np.array(xs), np.array(ys),
@@ -209,22 +211,24 @@ def make_figure(
 
     seen: dict[str, object] = {}
     for ax in axes:
-        ax.tick_params(axis="x", direction="in")
-        ax.tick_params(axis="y", direction="in")
+        ax.tick_params(axis="x",direction="in")
+        ax.tick_params(axis="x",direction="in", which='minor')
+        ax.tick_params(axis="y",direction="in")
+        ax.tick_params(axis="y",direction="in", which='minor')
         for h, lab in zip(*ax.get_legend_handles_labels()):
             if lab not in seen:
                 seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
-        loc="upper center", fontsize=9, ncol=len(seen),
+        loc="upper center", fontsize=9, ncol=len(seen)//2,
         columnspacing=0.55,
-        bbox_to_anchor=(0.52, 1.08),
+        bbox_to_anchor=(0.52, 1.15),
         handletextpad=0.1,
-        frameon=False,
+        frameon=False
     )
 
     fig.tight_layout()
-    plt.subplots_adjust(wspace=0.15, hspace=0)
+    plt.subplots_adjust(wspace=0.18, hspace=0)
     out = FIGS_DIR / "r2_vs_params.pdf"
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")

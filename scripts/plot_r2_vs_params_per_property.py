@@ -61,21 +61,31 @@ def plot_panel(
         ax.scatter(
             x[mask], y[mask],
             color=style["color"], marker=style["marker"],
-            s=45, label=style["label"], edgecolors="black", linewidths=0.3,
+            s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
 
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.sum() >= 3:
         rho, p_rho = spearmanr(x[finite], y[finite])
         ax.text(
-            0.97, 0.03,
-            f"ρ = {rho:.2f}  (p = {p_rho:.1g})",
-            transform=ax.transAxes, va="bottom", ha="right", fontsize=8,
+            0.95, -0.01,
+            f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
+            transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
+            bbox=None,
         )
+        ax.set_xscale("log")
 
-    ax.set_xscale("log")
-    ax.tick_params(axis="x", direction="in")
-    ax.tick_params(axis="y", direction="in")
+        log_x = np.log10(x[finite])
+        m, b = np.polyfit(log_x, y[finite], 1)
+        xlim = ax.get_xlim()
+        xfit = np.linspace(xlim[0], xlim[1], 200)
+        ax.plot(xfit, m * np.log10(xfit) + b, color="gray", lw=2, ls="--", zorder=0)
+        ax.set_xlim(xlim)
+
+    ax.tick_params(axis="x",direction="in")
+    ax.tick_params(axis="x",direction="in", which='minor')
+    ax.tick_params(axis="y",direction="in")
+    ax.tick_params(axis="y",direction="in", which='minor')
 
 
 def make_figure(
@@ -94,7 +104,7 @@ def make_figure(
     n_cols = len(modalities)
     fig, axes = plt.subplots(
         n_rows, n_cols,
-        figsize=(2.9 * n_cols + 0.6, 2.4 * n_rows + 0.4),
+        figsize=(6, 6),
         sharex="col", squeeze=False,
     )
 
@@ -133,14 +143,14 @@ def make_figure(
                     seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
-        loc="upper center", fontsize=9, ncol=len(seen),
+        loc="upper center", fontsize=9, ncol=len(seen)//2,
         columnspacing=0.55,
-        bbox_to_anchor=(0.5, 1.02),
+        bbox_to_anchor=(0.52, 1.06),
         handletextpad=0.1,
         frameon=False,
     )
 
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    fig.tight_layout()
     plt.subplots_adjust(wspace=0.2, hspace=0.08)
     out = FIGS_DIR / "r2_vs_params_per_property.pdf"
     fig.savefig(out, dpi=300, bbox_inches="tight")

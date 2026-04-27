@@ -62,9 +62,9 @@ def plot_panel(
             continue
         style = FAMILY_STYLE[family]
         ax.scatter(
-            x[mask]*100, y[mask],
+            x[mask], y[mask],
             color=style["color"], marker=style["marker"],
-            s=45, label=style["label"], edgecolors="black", linewidths=0.3,
+            s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
 
     finite = np.isfinite(x) & np.isfinite(y)
@@ -72,9 +72,16 @@ def plot_panel(
         rho, p_rho = spearmanr(x[finite], y[finite])
         ax.text(
             0.97, 0.03,
-            f"ρ = {rho:.2f}  (p = {p_rho:.1g})",
-            transform=ax.transAxes, va="bottom", ha="right", fontsize=8,
+            f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
+            transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
+            bbox=None,
         )
+
+        m, b = np.polyfit(x[finite], y[finite], 1)
+        xlim = ax.get_xlim()
+        xfit = np.linspace(xlim[0], xlim[1], 200)
+        ax.plot(xfit, m * xfit + b, color="gray", lw=2, ls="--", zorder=0)
+        ax.set_xlim(xlim)
 
     ax.tick_params(axis="x", direction="in")
     ax.tick_params(axis="y", direction="in")
@@ -95,6 +102,7 @@ def _make_figure(
             f"Unknown family names in --exclude-families: {sorted(unknown)}. "
             f"Valid: {sorted(FAMILY_STYLE)}"
         )
+
     kept = [p for p in pairs if p[0] not in exclude_families]
     if not kept:
         raise RuntimeError("No pairs left after applying --exclude-families")
@@ -103,7 +111,7 @@ def _make_figure(
     n_cols = len(modalities)
     fig, axes = plt.subplots(
         n_rows, n_cols,
-        figsize=(2.9 * n_cols + 0.6, 2.4 * n_rows + 0.4),
+        figsize=(8, 6),
         sharey="row", sharex="col", squeeze=False,
     )
 

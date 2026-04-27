@@ -62,16 +62,17 @@ def plot_panel(
         ax.scatter(
             x[mask], y[mask],
             color=style["color"], marker=style["marker"],
-            s=45, label=style["label"], edgecolors="black", linewidths=0.3,
+            s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
 
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.sum() >= 3:
         rho, p_rho = spearmanr(x[finite], y[finite])
         ax.text(
-            0.97, 0.03,
-            f"ρ = {rho:.2f}  (p = {p_rho:.1g})",
-            transform=ax.transAxes, va="bottom", ha="right", fontsize=8,
+            0.95, -0.01,
+            f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
+            transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
+            bbox=None,
         )
 
     ax.tick_params(axis="x", direction="in")

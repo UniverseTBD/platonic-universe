@@ -122,11 +122,6 @@ def plot_scatter(
             color=style["color"], marker=style["marker"],
             s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
-        #for xi, yi, sz in zip(x[mask], y[mask], np.array(sizes)[mask]):
-        #    ax.annotate(
-        #        sz, (xi, yi), xytext=(4, 2), textcoords="offset points",
-        #        fontsize=6, color=style["color"],
-        #    )
 
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.sum() >= 3:
