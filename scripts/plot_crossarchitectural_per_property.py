@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Cross-architectural MKNN / CKA vs per-property HSC R² — 1×3 appendix figure.
+Cross-architectural MKNN / CKA vs per-property HSC R² — appendix figure.
 
-One row, three columns: redshift, log M*, log sSFR.
-Same x-axis and model pool as plot_crossarchitectural.py; this
-view just breaks the y-axis back into its three property components
-instead of averaging them.
+Rows: physics property (redshift, mass, sSFR).
+Cols: modality (HSC, JWST).
+One point per (family, size); x is the cross-architectural metric mean
+under the column's modality, y is R² of the row's property.
 """
 
 import argparse
@@ -75,36 +75,55 @@ def plot_panel(
             bbox=None,
         )
 
+        m, b = np.polyfit(x[finite], y[finite], 1)
+        xlim = ax.get_xlim()
+        xfit = np.linspace(xlim[0], xlim[1], 200)
+        ax.plot(xfit, m * xfit + b, color="gray", lw=2, ls="--", zorder=0)
+        ax.set_xlim(xlim)
+
     ax.tick_params(axis="x", direction="in")
+    ax.tick_params(axis="x", direction="in", which="minor")
     ax.tick_params(axis="y", direction="in")
+    ax.tick_params(axis="y", direction="in", which="minor")
 
 
 def _make_figure(
-    mean_x: np.ndarray,
+    x_per_modality: dict[str, np.ndarray],
     families: list[str],
     models: list[tuple[str, str, Path]],
     r2: dict,
     metric: str,
     method: str,
-    modality: str,
     out_name: str,
 ) -> None:
-    n_cols = len(R2_PROPS)
+    modalities = list(x_per_modality)
+    n_rows = len(R2_PROPS)
+    n_cols = len(modalities)
     fig, axes = plt.subplots(
-        1, n_cols,
-        figsize=(2.9 * n_cols + 0.6, 2.8),
-        sharey=False, squeeze=False,
+        n_rows, n_cols,
+        figsize=(6, 6),
+        sharex="col", 
+        sharey="row", 
+        squeeze=False,
     )
 
     scale = 100.0 if method == "compare" else 1.0
-    x_scaled = mean_x * scale
-    for j, prop in enumerate(R2_PROPS):
-        ax = axes[0, j]
+    for i, prop in enumerate(R2_PROPS):
         y = np.array([r2_for_model_prop(r2, f, s, prop) for f, s, _ in models])
-        plot_panel(ax, x_scaled, y, families)
+        for j, modality in enumerate(modalities):
+            ax = axes[i, j]
+            x_scaled = x_per_modality[modality] * scale
+            plot_panel(ax, x_scaled, y, families)
 
-        ax.set_xlabel(metric_axis_label(modality, metric, method), fontsize=10)
-        ax.set_ylabel(rf"{PROP_LABEL[prop]} $[R^2]$ ", fontsize=10)
+            if i == n_rows - 1:
+                ax.set_xlabel(
+                    metric_axis_label(modality, metric, method),
+                    fontsize=10,
+                )
+            if j == 0:
+                ax.set_ylabel(
+                    rf"{PROP_LABEL[prop]} $[R^2]$ ", fontsize=10,
+                )
 
     seen: dict[str, object] = {}
     for row in axes:
@@ -114,15 +133,15 @@ def _make_figure(
                     seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
-        loc="upper center", fontsize=9, ncol=len(seen),
+        loc="upper center", fontsize=9, ncol=len(seen)//2,
         columnspacing=0.55,
-        bbox_to_anchor=(0.5, 1.02),
+        bbox_to_anchor=(0.52, 1.06),
         handletextpad=0.1,
         frameon=False,
     )
 
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    plt.subplots_adjust(wspace=0.28)
+    fig.tight_layout()
+    plt.subplots_adjust(wspace=0.02, hspace=0.08)
     out = FIGS_DIR / out_name
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")
@@ -170,22 +189,26 @@ def main():
     families = [f for f, s, _ in models]
 
     suffix = method_suffix(args.method)
+
+    x_mknn_per_modality: dict[str, np.ndarray] = {}
+    x_cka_per_modality: dict[str, np.ndarray] = {}
     for modality in MODALITIES:
         mats = compute_or_load_matrices(
             models, labels, idx, args.recompute, modality, args.method,
         )
-        x_mknn = np.nanmean(mats["mknn"], axis=1)
-        x_cka = np.nanmean(mats["cka"], axis=1)
-        _make_figure(
-            x_mknn, families, models, r2,
-            metric="mknn", method=args.method, modality=modality,
-            out_name=f"crossarchitectural_per_property_{modality}{suffix}.pdf",
-        )
-        _make_figure(
-            x_cka, families, models, r2,
-            metric="cka", method=args.method, modality=modality,
-            out_name=f"crossarchitectural_cka_per_property_{modality}{suffix}.pdf",
-        )
+        x_mknn_per_modality[modality] = np.nanmean(mats["mknn"], axis=1)
+        x_cka_per_modality[modality] = np.nanmean(mats["cka"], axis=1)
+
+    _make_figure(
+        x_mknn_per_modality, families, models, r2,
+        metric="mknn", method=args.method,
+        out_name=f"crossarchitectural_per_property{suffix}.pdf",
+    )
+    _make_figure(
+        x_cka_per_modality, families, models, r2,
+        metric="cka", method=args.method,
+        out_name=f"crossarchitectural_cka_per_property{suffix}.pdf",
+    )
 
 
 if __name__ == "__main__":
