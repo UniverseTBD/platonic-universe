@@ -22,6 +22,7 @@ dependencies = [
     "calibrated-similarity>=0.1.1",
     "accelerate>=1.13.0",
     "huggingface-hub>=0.20.0",
+    "scikit-misc>=0.5.2",
 ]
 
 [project.optional-dependencies]

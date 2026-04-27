@@ -494,7 +494,7 @@ def main():
                         help="Ignore cached matrices and recompute them")
     parser.add_argument("--check-alignment", action="store_true",
                         help="Only verify all parquets have the same row count and exit")
-    parser.add_argument("--exclude-families", nargs="+", default=["dinov3"],
+    parser.add_argument("--exclude-families", nargs="*", default=["dinov3"],
                         metavar="FAMILY",
                         help=f"Family names to drop (valid: "
                              f"{sorted(FAMILY_STYLE)})")

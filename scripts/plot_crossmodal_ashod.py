@@ -133,7 +133,7 @@ def plot_scatter(
         ax.scatter(
             x[mask], y[mask],
             color=style["color"], marker=style["marker"],
-            s=70, label=style["label"], edgecolors="black", linewidths=0.4,
+            s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
 
     finite = np.isfinite(x) & np.isfinite(y)
@@ -173,7 +173,7 @@ def _make_figure(
 
     n_panels = len(modalities)
     fig, axes = plt.subplots(
-        1, n_panels, figsize=(8, 3.0), sharey=True,
+        1, n_panels, figsize=(8, 2.0), sharey=True,
     )
     if n_panels == 1:
         axes = [axes]

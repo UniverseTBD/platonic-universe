@@ -23,6 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
+#from skmisc.loess import loess
 
 ROOT = Path(__file__).resolve().parent.parent
 FIGS_DIR = ROOT / "figs"
@@ -120,13 +121,24 @@ def plot_scatter(
         ax.scatter(
             x[mask], y[mask],
             color=style["color"], marker=style["marker"],
-            s=70, label=style["label"], edgecolors="black", linewidths=0.4,
+            s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
         #for xi, yi, sz in zip(x[mask], y[mask], np.array(sizes)[mask]):
         #    ax.annotate(
         #        sz, (xi, yi), xytext=(4, 2), textcoords="offset points",
         #        fontsize=6, color=style["color"],
         #    )
+
+    #l = loess(x, y)
+    #l.fit()
+    #pred = l.predict(sorted(x), stderror=True)
+    #conf = pred.confidence()
+    #lowess = pred.values
+    #ll = conf.lower
+    #ul = conf.upper
+    #ax.plot(sorted(x), lowess)
+    #ax.fill_between(x,ll,ul,alpha=.33)
+
 
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.sum() >= 3:
@@ -165,7 +177,7 @@ def _make_figure(
 
     n_panels = len(modalities)
     fig, axes = plt.subplots(
-        1, n_panels, figsize=(8, 3.0), sharey=True,
+        1, n_panels, figsize=(8, 2.0), sharey=True,
     )
     if n_panels == 1:
         axes = [axes]
@@ -181,6 +193,7 @@ def _make_figure(
             szs.append(f"{small}→{large}")
 
         is_first = ax is axes[0]
+
         plot_scatter(
             ax,
             np.array(xs)*100, np.array(ys),

@@ -138,7 +138,7 @@ def main():
                              "permutation-calibrated (calibrate)")
     parser.add_argument("--recompute", action="store_true",
                         help="Ignore cached matrices and recompute them")
-    parser.add_argument("--exclude-families", nargs="+", default=["dinov3"],
+    parser.add_argument("--exclude-families", nargs="*", default=["dinov3"],
                         metavar="FAMILY",
                         help=f"Family names to drop (valid: "
                              f"{sorted(FAMILY_STYLE)})")
