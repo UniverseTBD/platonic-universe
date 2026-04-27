@@ -3,7 +3,7 @@
 Cross-architectural MKNN / CKA vs per-property HSC R² — 1×3 appendix figure.
 
 One row, three columns: redshift, log M*, log sSFR.
-Same x-axis and model pool as plot_crossarchitectural_ashod.py; this
+Same x-axis and model pool as plot_crossarchitectural.py; this
 view just breaks the y-axis back into its three property components
 instead of averaging them.
 """
@@ -23,7 +23,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 FIGS_DIR = ROOT / "figs"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
-from plot_crossarchitectural_ashod import (  # noqa: E402
+from plot_crossarchitectural import (  # noqa: E402
     DEFAULT_R2_JSON,
     FAMILY_STYLE,
     METHODS,
@@ -178,12 +178,12 @@ def main():
         _make_figure(
             x_mknn, families, models, r2,
             metric="mknn", method=args.method, modality=modality,
-            out_name=f"crossarchitectural_ashod_per_property_{modality}{suffix}.pdf",
+            out_name=f"crossarchitectural_per_property_{modality}{suffix}.pdf",
         )
         _make_figure(
             x_cka, families, models, r2,
             metric="cka", method=args.method, modality=modality,
-            out_name=f"crossarchitectural_ashod_cka_per_property_{modality}{suffix}.pdf",
+            out_name=f"crossarchitectural_cka_per_property_{modality}{suffix}.pdf",
         )
 
 

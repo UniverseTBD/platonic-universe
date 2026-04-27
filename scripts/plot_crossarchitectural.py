@@ -5,19 +5,19 @@ Plot cross-architectural MKNN / CKA against HSC mean physics R².
 For each model we compute its mean pairwise MKNN (resp. CKA) to every
 other model — its degree of convergence to the cross-family consensus —
 and plot that against its HSC mean R² across (redshift, mass, sSFR)
-from Ashod's ``r2_vs_params_45000galaxies_upsampled.json``.
+from ``r2_vs_params_45000galaxies_upsampled.json``.
 
 Embeddings are loaded from ``data/jwst/jwst_{family}_{size}.parquet``,
 which each contain both an ``_hsc`` and a ``_jwst`` column, giving one
 cross-architectural MKNN/CKA panel per modality (HSC and JWST side by
-side), mirroring the layout of ``plot_crossmodal_ashod.py``.
+side), mirroring the layout of ``plot_crossmodal.py``.
 
 One panel per modality, one point per model. Tests the PRH prediction
 that models closer to the cross-architecture consensus also retain more
 physics information.
 
-Complements ``plot_intramodal_ashod.py`` (same-family scaling) and
-``plot_crossmodal_ashod.py`` (same-model across modalities).
+Complements ``plot_intramodal.py`` (same-family scaling) and
+``plot_crossmodal.py`` (same-model across modalities).
 
 Metric computation is delegated to ``pu.metrics``: use ``--method
 compare`` (default) for raw MKNN/CKA or ``--method calibrate`` for
@@ -66,7 +66,7 @@ def _cache_path(method: str, modality: str) -> Path:
     return DATA_DIR / f"crossarch_{method}_{modality}.parquet"
 
 
-# Explicit model list matching the pattern in plot_crossmodal_ashod.py.
+# Explicit model list matching the pattern in plot_crossmodal.py.
 # Each entry is (family, json_size) — both are also the column-name tokens
 # in the JWST parquets (e.g. "astropt_15m_hsc", "astropt_15m_jwst").
 MODELS: list[tuple[str, str]] = [
@@ -398,7 +398,7 @@ def plot_scatter(
         ax.scatter(
             x[mask], y[mask],
             color=style["color"], marker=style["marker"],
-            s=70, label=style["label"], edgecolors="black", linewidths=0.4,
+            s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
 
     finite = np.isfinite(x) & np.isfinite(y)
@@ -411,6 +411,12 @@ def plot_scatter(
             transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
             bbox=None,
         )
+
+        m, b = np.polyfit(x[finite], y[finite], 1)
+        xlim = ax.get_xlim()
+        xfit = np.linspace(xlim[0], xlim[1], 200)
+        ax.plot(xfit, m * xfit + b, color="gray", lw=2, ls="--", zorder=0)
+        ax.set_xlim(xlim)
 
     ax.tick_params(axis="x", direction="in")
     ax.tick_params(axis="y", direction="in")
@@ -484,7 +490,7 @@ def _make_figure(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--r2-json", type=Path, default=DEFAULT_R2_JSON,
-                        help="Path to Ashod's r2_vs_params JSON")
+                        help="Path to r2_vs_params JSON")
     parser.add_argument("--n-sub", type=int, default=N_SUB,
                         help="Number of galaxies to subsample")
     parser.add_argument("--method", choices=METHODS, default="compare",
@@ -562,12 +568,12 @@ def main():
     _make_figure(
         x_per_metric["mknn"], y, families,
         metric="mknn", method=args.method,
-        out_name=f"crossarchitectural_ashod{suffix}.pdf",
+        out_name=f"crossarchitectural{suffix}.pdf",
     )
     _make_figure(
         x_per_metric["cka"], y, families,
         metric="cka", method=args.method,
-        out_name=f"crossarchitectural_ashod_cka{suffix}.pdf",
+        out_name=f"crossarchitectural_cka{suffix}.pdf",
     )
 
 

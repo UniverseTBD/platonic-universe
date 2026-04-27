@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Plot model parameter count against mean physics R² in the same style
-as scripts/plot_crossmodal_ashod.py.
+as scripts/plot_crossmodal.py.
 
-R² is the mean across (redshift, mass, sSFR) from Ashod's
+R² is the mean across (redshift, mass, sSFR) from
 ``r2_vs_params_45000galaxies_upsampled.json``. One panel per modality
 (HSC / JWST). One point per (family, size).
 """
@@ -225,7 +225,7 @@ def make_figure(
 
     fig.tight_layout()
     plt.subplots_adjust(wspace=0.15, hspace=0)
-    out = FIGS_DIR / "r2_vs_params_ashod.pdf"
+    out = FIGS_DIR / "r2_vs_params.pdf"
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")
     plt.close(fig)
@@ -234,7 +234,7 @@ def make_figure(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--r2-json", type=Path, default=DEFAULT_R2_JSON,
-                        help="Path to Ashod's r2_vs_params JSON")
+                        help="Path to r2_vs_params JSON")
     parser.add_argument("--modalities", nargs="+", default=list(MODALITIES),
                         choices=MODALITIES,
                         help="Subset of modality panels to plot")

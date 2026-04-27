@@ -6,9 +6,9 @@ Rows: physics property (redshift, mass, sSFR).
 Cols: modality (JWST, Legacy Survey, HSC).
 One point per (small, large) pair; x is the pair's intramodal MKNN / CKA
 from the manuscript table, y is R² of the property for the larger model
-under HSC (from Ashod's r2_vs_params_45000galaxies_upsampled.json).
+under HSC (from r2_vs_params_45000galaxies_upsampled.json).
 
-Same model/pair set as plot_intramodal_ashod.py; this view just breaks
+Same model/pair set as plot_intramodal.py; this view just breaks
 the y-axis back into its three property components instead of averaging.
 """
 
@@ -27,14 +27,14 @@ SCRIPTS_DIR = ROOT / "scripts"
 FIGS_DIR = ROOT / "figs"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
-from plot_intramodal_ashod import (  # noqa: E402
+from plot_crossmodal import (  # noqa: E402
     CKA_COL,
     DEFAULT_R2_JSON,
     FAMILY_STYLE,
     MKNN_COL,
     MODALITIES,
     MODALITY_LABEL,
-    PAIRS,
+    MODELS,
     R2_PROPS,
     load_r2_json,
 )
@@ -46,7 +46,7 @@ PROP_LABEL = {
 }
 
 
-def r2_for_larger_prop(r2: dict, family: str, size: str, prop: str) -> float:
+def r2_for_model(r2: dict, family: str, size: str, prop: str) -> float:
     return float(r2["hsc"][family][size][prop]["r2_mean"])
 
 
@@ -113,9 +113,12 @@ def _make_figure(
             col = col_map[modality]
             xs, ys, fams = [], [], []
             for p in kept:
-                family, _, large = p[0], p[1], p[2]
-                xs.append(float(p[col]) / 100.0)
-                ys.append(r2_for_larger_prop(r2, family, large, prop))
+                family, size = p[0], p[1]
+                val = p[col]
+                if val is None:
+                    continue
+                xs.append(float(val) / 100.0)
+                ys.append(r2_for_model(r2, family, size, prop))
                 fams.append(family)
             plot_panel(ax, np.array(xs), np.array(ys), fams)
 
@@ -141,7 +144,7 @@ def _make_figure(
         seen.values(), list(seen.keys()),
         loc="upper center", fontsize=9, ncol=len(seen),
         columnspacing=0.55,
-        bbox_to_anchor=(0.5, 1.0),
+        bbox_to_anchor=(0.5, 1.02),
         handletextpad=0.1,
         frameon=False,
     )
@@ -172,19 +175,19 @@ def main():
 
     print(f"Loaded R² JSON from {args.r2_json}")
     print(f"Grid: {len(R2_PROPS)}×{len(modalities)} (properties × modalities)")
-    print(f"Pairs: {len(PAIRS)} total, "
-          f"{len([p for p in PAIRS if p[0] not in exclude])} "
+    print(f"Pairs: {len(MODELS)} total, "
+          f"{len([p for p in MODELS if p[0] not in exclude])} "
           f"after --exclude-families={args.exclude_families or '[]'}")
 
     _make_figure(
-        PAIRS, r2, exclude, modalities,
+        MODELS, r2, exclude, modalities,
         col_map=MKNN_COL, metric_label="MKNN",
-        out_name="intramodal_ashod_per_property.pdf",
+        out_name="crossmodal_per_property.pdf",
     )
     _make_figure(
-        PAIRS, r2, exclude, modalities,
+        MODELS, r2, exclude, modalities,
         col_map=CKA_COL, metric_label="CKA",
-        out_name="intramodal_ashod_cka_per_property.pdf",
+        out_name="crossmodal_cka_per_property.pdf",
     )
 
 

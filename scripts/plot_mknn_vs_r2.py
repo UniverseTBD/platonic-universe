@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Plot MKNN embedding similarity (mean MKNN vs every other model) against
-physics R² (mean over redshift, mass, sSFR) taken from Ashod's precomputed
+physics R² (mean over redshift, mass, sSFR) taken from the precomputed
 table at ``r2_vs_params_45000galaxies_upsampled.json``.
 
 One point per model. Tests the PRH prediction that models whose
@@ -149,7 +149,7 @@ def build_r2_df(
     modality: str,
     models: list[tuple[str, str, Path]],
 ) -> pl.DataFrame:
-    """Build a DataFrame of mean R² per model from the Ashod JSON.
+    """Build a DataFrame of mean R² per model from the r2_vs_params JSON.
 
     Averages ``r2_mean`` across ``R2_PROPS`` for each (family, size).
     """
@@ -284,7 +284,7 @@ def plot_scatter(
     if xlabel is None:
         xlabel = f"Mean MKNN to other models (cosine, k={K_MAIN})"
     if ylabel is None:
-        ylabel = "Mean $R^2$ (redshift, mass, sSFR — Ashod 45k)"
+        ylabel = "Mean $R^2$ (redshift, mass, sSFR — 45k upsampled)"
     ax.set_xlabel(xlabel, fontsize=11)
     ax.set_ylabel(ylabel, fontsize=11)
     ax.set_title(title, fontsize=11)
@@ -303,11 +303,11 @@ def make_main_figure(
     plot_scatter(
         ax, x, y, families, sizes,
         title=f"Representational convergence vs physics R² "
-              f"(MKNN k={K_MAIN}, {modality.upper()}, R² from Ashod 45k upsampled JSON)",
+              f"(MKNN k={K_MAIN}, {modality.upper()}, R² from 45k upsampled JSON)",
     )
     ax.legend(fontsize=9, loc="lower right", ncol=2)
     fig.tight_layout()
-    out = FIGS_DIR / f"mknn_vs_r2_ashod_{modality}.pdf"
+    out = FIGS_DIR / f"mknn_vs_r2_{modality}.pdf"
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")
     plt.close(fig)
@@ -329,16 +329,16 @@ def make_per_property_figure(
         plot_scatter(
             ax, x, y, families, sizes,
             title=prop,
-            ylabel=f"$R^2$ ({prop}) — Ashod 45k",
+            ylabel=f"$R^2$ ({prop}) — 45k upsampled",
         )
     axes[0].legend(fontsize=8, loc="lower right", ncol=2)
     fig.suptitle(
         f"MKNN (k={K_MAIN}) vs per-property R² "
-        f"({modality.upper()}, R² from Ashod 45k upsampled JSON)",
+        f"({modality.upper()}, R² from 45k upsampled JSON)",
         fontsize=13,
     )
     fig.tight_layout()
-    out = FIGS_DIR / f"mknn_vs_r2_ashod_{modality}_per_property.pdf"
+    out = FIGS_DIR / f"mknn_vs_r2_{modality}_per_property.pdf"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     print(f"Saved {out}")
     plt.close(fig)
@@ -355,7 +355,7 @@ def main():
     parser.add_argument("--modality", choices=("hsc", "jwst"), default="hsc",
                         help="Which modality block of the R² JSON to use")
     parser.add_argument("--r2-json", type=Path, default=DEFAULT_R2_JSON,
-                        help="Path to Ashod's r2_vs_params JSON")
+                        help="Path to r2_vs_params JSON")
     parser.add_argument("--exclude-families", nargs="+", default=[],
                         metavar="FAMILY",
                         help="Family names to drop from the plot (e.g. dinov3)")

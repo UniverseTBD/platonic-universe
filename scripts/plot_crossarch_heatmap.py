@@ -31,7 +31,7 @@ MODALITIES = ("hsc", "jwst")
 METRICS = ("mknn", "cka")
 METRIC_LABEL = {"mknn": "Calibrated MKNN", "cka": "Calibrated CKA"}
 
-# Mirror of plot_crossarchitectural_ashod.MODELS. Order is family-first
+# Mirror of plot_crossarchitectural.MODELS. Order is family-first
 # then by size. Models not present in the cached parquets are dropped at
 # load time, so this list is a superset target.
 MODELS: list[tuple[str, str]] = [

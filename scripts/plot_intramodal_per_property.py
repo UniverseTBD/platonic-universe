@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Parameter count vs per-property R² — appendix figure to
-plot_r2_vs_params_ashod.py.
+Intramodal MKNN / CKA vs per-property HSC R² — 3×3 appendix figure.
 
 Rows: physics property (redshift, mass, sSFR).
-Cols: modality (HSC, JWST).
-One point per (family, size); x is the model's parameter count, y is
-R² of the property under the column's modality (from Ashod's
-``r2_vs_params_45000galaxies_upsampled.json``).
+Cols: modality (JWST, Legacy Survey, HSC).
+One point per (small, large) pair; x is the pair's intramodal MKNN / CKA
+from the manuscript table, y is R² of the property for the larger model
+under HSC (from r2_vs_params_45000galaxies_upsampled.json).
+
+Same model/pair set as plot_intramodal.py; this view just breaks
+the y-axis back into its three property components instead of averaging.
 """
 
 import argparse
@@ -25,12 +27,14 @@ SCRIPTS_DIR = ROOT / "scripts"
 FIGS_DIR = ROOT / "figs"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
-from plot_r2_vs_params_ashod import (  # noqa: E402
+from plot_intramodal import (  # noqa: E402
+    CKA_COL,
     DEFAULT_R2_JSON,
     FAMILY_STYLE,
+    MKNN_COL,
     MODALITIES,
     MODALITY_LABEL,
-    PARAM_COUNTS,
+    PAIRS,
     R2_PROPS,
     load_r2_json,
 )
@@ -42,9 +46,8 @@ PROP_LABEL = {
 }
 
 
-def r2_for_model(r2: dict, modality: str, family: str, size: str,
-                 prop: str) -> float:
-    return float(r2[modality][family][size][prop]["r2_mean"])
+def r2_for_larger_prop(r2: dict, family: str, size: str, prop: str) -> float:
+    return float(r2["hsc"][family][size][prop]["r2_mean"])
 
 
 def plot_panel(
@@ -59,7 +62,7 @@ def plot_panel(
             continue
         style = FAMILY_STYLE[family]
         ax.scatter(
-            x[mask], y[mask],
+            x[mask]*100, y[mask],
             color=style["color"], marker=style["marker"],
             s=45, label=style["label"], edgecolors="black", linewidths=0.3,
         )
@@ -73,15 +76,18 @@ def plot_panel(
             transform=ax.transAxes, va="bottom", ha="right", fontsize=8,
         )
 
-    ax.set_xscale("log")
     ax.tick_params(axis="x", direction="in")
     ax.tick_params(axis="y", direction="in")
 
 
-def make_figure(
+def _make_figure(
+    pairs: list[tuple],
     r2: dict,
     exclude_families: set[str],
     modalities: tuple[str, ...],
+    col_map: dict[str, int],
+    metric_label: str,
+    out_name: str,
 ) -> None:
     unknown = exclude_families - set(FAMILY_STYLE)
     if unknown:
@@ -89,35 +95,35 @@ def make_figure(
             f"Unknown family names in --exclude-families: {sorted(unknown)}. "
             f"Valid: {sorted(FAMILY_STYLE)}"
         )
+    kept = [p for p in pairs if p[0] not in exclude_families]
+    if not kept:
+        raise RuntimeError("No pairs left after applying --exclude-families")
 
     n_rows = len(R2_PROPS)
     n_cols = len(modalities)
     fig, axes = plt.subplots(
         n_rows, n_cols,
         figsize=(2.9 * n_cols + 0.6, 2.4 * n_rows + 0.4),
-        sharex="col", squeeze=False,
+        sharey="row", sharex="col", squeeze=False,
     )
 
     for i, prop in enumerate(R2_PROPS):
         for j, modality in enumerate(modalities):
             ax = axes[i, j]
+            col = col_map[modality]
             xs, ys, fams = [], [], []
-            for family, sizes in PARAM_COUNTS.items():
-                if family in exclude_families:
-                    continue
-                for size, n_params in sizes.items():
-                    try:
-                        r2_val = r2_for_model(r2, modality, family, size, prop)
-                    except KeyError:
-                        continue
-                    xs.append(float(n_params))
-                    ys.append(r2_val)
-                    fams.append(family)
+            for p in kept:
+                family, _, large = p[0], p[1], p[2]
+                xs.append(float(p[col]) / 100.0)
+                ys.append(r2_for_larger_prop(r2, family, large, prop))
+                fams.append(family)
             plot_panel(ax, np.array(xs), np.array(ys), fams)
 
+            #if i == 0:
+            #    ax.set_title(MODALITY_LABEL[modality], fontsize=10)
             if i == n_rows - 1:
                 ax.set_xlabel(
-                    f"{MODALITY_LABEL[modality]} [Parameters]",
+                    f"{MODALITY_LABEL[modality]} [{metric_label} %]",
                     fontsize=10,
                 )
             if j == 0:
@@ -135,14 +141,14 @@ def make_figure(
         seen.values(), list(seen.keys()),
         loc="upper center", fontsize=9, ncol=len(seen),
         columnspacing=0.55,
-        bbox_to_anchor=(0.5, 1.02),
+        bbox_to_anchor=(0.5, 1.0),
         handletextpad=0.1,
         frameon=False,
     )
 
     fig.tight_layout(rect=(0, 0, 1, 0.97))
-    plt.subplots_adjust(wspace=0.2, hspace=0.08)
-    out = FIGS_DIR / "r2_vs_params_ashod_per_property.pdf"
+    plt.subplots_adjust(wspace=0.08, hspace=0.08)
+    out = FIGS_DIR / out_name
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")
     plt.close(fig)
@@ -153,7 +159,7 @@ def main():
     parser.add_argument("--r2-json", type=Path, default=DEFAULT_R2_JSON)
     parser.add_argument("--modalities", nargs="+", default=list(MODALITIES),
                         choices=MODALITIES)
-    parser.add_argument("--exclude-families", nargs="*", default=[],
+    parser.add_argument("--exclude-families", nargs="+", default=["dinov3"],
                         metavar="FAMILY",
                         help=f"Family names to drop (valid: "
                              f"{sorted(FAMILY_STYLE)})")
@@ -166,14 +172,20 @@ def main():
 
     print(f"Loaded R² JSON from {args.r2_json}")
     print(f"Grid: {len(R2_PROPS)}×{len(modalities)} (properties × modalities)")
-    n_total = sum(len(v) for v in PARAM_COUNTS.values())
-    n_kept = sum(
-        len(v) for f, v in PARAM_COUNTS.items() if f not in exclude
-    )
-    print(f"Models: {n_total} total, "
-          f"{n_kept} after --exclude-families={args.exclude_families or '[]'}")
+    print(f"Pairs: {len(PAIRS)} total, "
+          f"{len([p for p in PAIRS if p[0] not in exclude])} "
+          f"after --exclude-families={args.exclude_families or '[]'}")
 
-    make_figure(r2, exclude, modalities)
+    _make_figure(
+        PAIRS, r2, exclude, modalities,
+        col_map=MKNN_COL, metric_label="MKNN",
+        out_name="intramodal_per_property.pdf",
+    )
+    _make_figure(
+        PAIRS, r2, exclude, modalities,
+        col_map=CKA_COL, metric_label="CKA",
+        out_name="intramodal_cka_per_property.pdf",
+    )
 
 
 if __name__ == "__main__":

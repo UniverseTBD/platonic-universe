@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-Plot per-pair intramodal MKNN against the HSC mean physics R² of the
-*larger* model in each pair.
+Plot per-model crossmodal MKNN / CKA against the HSC mean physics R² of
+each model.
 
-MKNN values are transcribed from the manuscript's intramodal table (one
-number per model-pair per modality, for JWST / Legacy Survey / HSC). R²
-is the HSC mean across (redshift, mass, sSFR) from Ashod's
-``r2_vs_params_45000galaxies_upsampled.json``, looked up for the larger
-member of each pair.
+MKNN / CKA values are transcribed from the manuscript's crossmodal table
+(one number per model per modality, for JWST / Legacy Survey / DESI —
+each compared against the model's own HSC embeddings). R² is the HSC
+mean across (redshift, mass, sSFR) from
+``r2_vs_params_45000galaxies_upsampled.json``, looked up for that model.
 
-Three panels, one per modality. One point per model-pair. Tests whether
-model pairs whose representations stay close as a family scales up also
-retain physics information as they scale up.
+One panel per modality. One point per model. Tests whether models that
+align well across modalities also retain physics information.
 """
 
 import argparse
@@ -23,7 +22,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
-#from skmisc.loess import loess
 
 ROOT = Path(__file__).resolve().parent.parent
 FIGS_DIR = ROOT / "figs"
@@ -31,11 +29,11 @@ FIGS_DIR = ROOT / "figs"
 DEFAULT_R2_JSON = ROOT / "r2_vs_params_45000galaxies_upsampled.json"
 R2_PROPS = ("redshift", "mass", "sSFR")
 
-MODALITIES = ("jwst", "legacysurvey", "hsc")
+MODALITIES = ("jwst", "legacysurvey", "desi")
 MODALITY_LABEL = {
     "jwst": "JWST",
     "legacysurvey": "Legacy Survey",
-    "hsc": "HSC",
+    "desi": "DESI",
 }
 
 FAMILY_STYLE = {
@@ -51,35 +49,49 @@ FAMILY_STYLE = {
     "llava_15":  {"label": "LLaVA 1.5",   "color": "#7f7f7f", "marker": "X"},
 }
 
-# (family, small, large,
-#  mknn_jwst%, mknn_legacysurvey%, mknn_hsc%,
-#  cka_jwst%,  cka_legacysurvey%,  cka_hsc%)
-PAIRS = [
-    ("astropt",   "15m",        "95m",        47.2, 35.5, 35.7, 96.9, 98.4, 98.1),
-    ("astropt",   "95m",        "850m",       51.6, 39.4, 39.6, 97.2, 98.3, 98.1),
-    ("clip",      "base",       "large",      30.7,  5.9,  6.2, 66.7, 69.4, 68.8),
-    ("convnext",  "nano",       "tiny",       29.6,  4.4,  4.8, 66.3, 70.3, 70.4),
-    ("convnext",  "tiny",       "base",       29.0,  3.9,  4.2, 72.0, 68.4, 67.7),
-    ("convnext",  "base",       "large",      35.8,  5.9,  6.3, 80.5, 77.0, 76.7),
-    ("dinov3",    "vits16",     "vits16plus", 43.6, 10.8, 16.5, 88.5, 89.7, 86.7),
-    ("dinov3",    "vits16plus", "vitb16",     38.2,  9.6, 14.3, 86.5, 88.5, 86.3),
-    ("dinov3",    "vitb16",     "vitl16",     32.7,  7.1,  9.4, 73.6, 73.1, 68.0),
-    ("dinov3",    "vitl16",     "vith16plus", 34.0,  6.3,  8.8, 78.5, 68.7, 66.6),
-    ("dinov3",    "vith16plus", "vit7b16",    40.5,  7.8, 11.7, 81.8, 62.1, 64.2),
-    ("vit-mae",   "base",       "large",      23.5,  4.2,  4.5, 93.0, 95.9, 95.9),
-    ("vit-mae",   "large",      "huge",       26.8,  4.3,  4.6, 94.0, 96.2, 96.1),
-    ("vit",       "base",       "large",      22.7, 11.7,  9.8, 72.4, 83.5, 92.1),
-    ("vit",       "large",      "huge",       25.8, 14.3, 12.3, 66.5, 72.7, 97.8),
-    ("paligemma", "3b",         "10b",        27.7, 25.7, 16.9, 75.9, 72.5, 85.2),
-    ("paligemma", "10b",        "28b",        29.5, 28.2, 17.9, 80.3, 66.5, 81.3),
-    ("vjepa",     "large",      "huge",       31.9, 32.1, 20.0, 89.7, 82.4, 74.2),
-    ("vjepa",     "huge",       "giant",      35.4, 36.0, 20.0, 84.7, 80.6, 80.3),
-    ("ijepa",     "huge",       "giant",      28.5, 10.8, 12.2, 84.8, 95.0, 84.7),
-    ("llava_15",  "7b",         "13b",        28.4, 21.2, 17.2, 64.3, 83.6, 59.3),
+# (family, size,
+#  mknn_jwst%, mknn_legacysurvey%, mknn_desi%,
+#  cka_jwst%,  cka_legacysurvey%,  cka_desi%)
+# None denotes a missing measurement (shown as "--" in the manuscript).
+# Family/size keys match r2_vs_params_45000galaxies_upsampled.json. The
+# AstroPTv2 Small/Base/Large rows in the paper correspond to astropt
+# 15m/95m/850m in the R² JSON.
+MODELS = [
+    ("astropt",   "15m",        11.62, None, 1.25, 43.42, None, 45.66),
+    ("astropt",   "95m",        12.60, None, 1.32, 42.03, None, 45.39),
+    ("astropt",   "850m",       14.30, None, 1.41, 41.93, None, 44.47),
+    ("clip",      "base",       12.88, None, 1.29, 30.59, None, 33.39),
+    ("clip",      "large",      14.07, None, 1.24, 31.89, None, 33.85),
+    ("convnext",  "nano",       11.33, None, 1.01, 32.52, None, 32.29),
+    ("convnext",  "tiny",       11.91, None, 1.05, 28.57, None, 29.64),
+    ("convnext",  "base",       10.57, None, 0.87, 33.28, None, 33.32),
+    ("convnext",  "large",      12.23, None, 1.01, 34.01, None, 36.50),
+    ("dinov3",    "vits16",     14.55, None, 0.98, 52.18, None, 34.80),
+    ("dinov3",    "vits16plus", 13.09, None, 0.97, 48.53, None, 35.39),
+    ("dinov3",    "vitb16",     14.03, None, 0.92, 49.44, None, 33.25),
+    ("dinov3",    "vitl16",     11.80, None, 0.79, 45.31, None, 30.14),
+    ("dinov3",    "vith16plus", 10.35, None, 0.67, 31.58, None, 22.21),
+    ("dinov3",    "vit7b16",    12.62, None, 0.82, 40.14, None, 30.13),
+    ("ijepa",     "huge",        9.85, None, 0.56, 15.22, None, 15.86),
+    ("ijepa",     "giant",      11.63, None, 0.73, 21.25, None, 25.40),
+    ("llava_15",  "7b",         11.16, None, 1.04, 31.10, None, 36.88),
+    ("llava_15",  "13b",        11.70, None, 1.06, 45.03, None, 38.11),
+    ("paligemma", "3b",         11.50, None, 1.18, 43.20, None, 32.89),
+    ("paligemma", "10b",        12.23, None, 1.17, 41.98, None, 33.97),
+    ("paligemma", "28b",         7.03, None, None, 18.85, None, None),
+    ("vit-mae",   "base",       10.09, None, 1.01, 59.34, None, 29.25),
+    ("vit-mae",   "large",      10.75, None, 0.94, 59.23, None, 28.39),
+    ("vit-mae",   "huge",       11.22, None, 0.93, 61.66, None, 28.59),
+    ("vit",       "base",       10.48, None, 1.02, 30.13, None, 35.17),
+    ("vit",       "large",      13.01, None, 1.03, 47.00, None, 34.98),
+    ("vit",       "huge",       15.88, None, 1.14, 46.32, None, 37.18),
+    ("vjepa",     "large",      14.27, None, 0.82, 59.63, None, 23.98),
+    ("vjepa",     "huge",       10.98, None, 0.74, 24.86, None, 23.71),
+    ("vjepa",     "giant",      13.19, None, 0.89, 24.57, None, 30.73),
 ]
 
-MKNN_COL = {"jwst": 3, "legacysurvey": 4, "hsc": 5}
-CKA_COL  = {"jwst": 6, "legacysurvey": 7, "hsc": 8}
+MKNN_COL = {"jwst": 2, "legacysurvey": 3, "desi": 4}
+CKA_COL  = {"jwst": 5, "legacysurvey": 6, "desi": 7}
 
 
 def load_r2_json(path: Path) -> dict:
@@ -87,18 +99,18 @@ def load_r2_json(path: Path) -> dict:
         return json.load(f)
 
 
-def r2_for_larger(r2: dict, family: str, large_size: str) -> float:
+def r2_for_model(r2: dict, family: str, size: str) -> float:
     try:
-        entry = r2["hsc"][family][large_size]
+        entry = r2["hsc"][family][size]
     except KeyError as e:
         raise KeyError(
-            f"{family}/{large_size} missing under modality 'hsc' in R² JSON"
+            f"{family}/{size} missing under modality 'hsc' in R² JSON"
         ) from e
     vals = []
     for prop in R2_PROPS:
         if prop not in entry:
             raise KeyError(
-                f"{family}/{large_size} missing property {prop!r} under 'hsc'"
+                f"{family}/{size} missing property {prop!r} under 'hsc'"
             )
         vals.append(float(entry[prop]["r2_mean"]))
     return float(np.mean(vals))
@@ -123,22 +135,6 @@ def plot_scatter(
             color=style["color"], marker=style["marker"],
             s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
-        #for xi, yi, sz in zip(x[mask], y[mask], np.array(sizes)[mask]):
-        #    ax.annotate(
-        #        sz, (xi, yi), xytext=(4, 2), textcoords="offset points",
-        #        fontsize=6, color=style["color"],
-        #    )
-
-    #l = loess(x, y)
-    #l.fit()
-    #pred = l.predict(sorted(x), stderror=True)
-    #conf = pred.confidence()
-    #lowess = pred.values
-    #ll = conf.lower
-    #ul = conf.upper
-    #ax.plot(sorted(x), lowess)
-    #ax.fill_between(x,ll,ul,alpha=.33)
-
 
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.sum() >= 3:
@@ -151,12 +147,18 @@ def plot_scatter(
             bbox=None,
         )
 
+        m, b = np.polyfit(x[finite], y[finite], 1)
+        xlim = ax.get_xlim()
+        xfit = np.linspace(xlim[0], xlim[1], 200)
+        ax.plot(xfit, m * xfit + b, color="gray", lw=2, ls="--", zorder=0)
+        ax.set_xlim(xlim)
+
     ax.set_xlabel(xlabel, fontsize=11)
     ax.set_ylabel(ylabel, fontsize=11)
 
 
 def _make_figure(
-    pairs: list[tuple],
+    models: list[tuple],
     r2: dict,
     exclude_families: set[str],
     modalities: tuple[str, ...],
@@ -171,9 +173,9 @@ def _make_figure(
             f"Valid: {sorted(FAMILY_STYLE)}"
         )
 
-    kept = [p for p in pairs if p[0] not in exclude_families]
+    kept = [m for m in models if m[0] not in exclude_families]
     if not kept:
-        raise RuntimeError("No pairs left after applying --exclude-families")
+        raise RuntimeError("No models left after applying --exclude-families")
 
     n_panels = len(modalities)
     fig, axes = plt.subplots(
@@ -185,15 +187,17 @@ def _make_figure(
     for ax, modality in zip(axes, modalities):
         col = col_map[modality]
         xs, ys, fams, szs = [], [], [], []
-        for p in kept:
-            family, small, large = p[0], p[1], p[2]
-            xs.append(float(p[col]) / 100.0)
-            ys.append(r2_for_larger(r2, family, large))
+        for m in kept:
+            family, size = m[0], m[1]
+            val = m[col]
+            if val is None:
+                continue
+            xs.append(float(val) / 100.0)
+            ys.append(r2_for_model(r2, family, size))
             fams.append(family)
-            szs.append(f"{small}→{large}")
+            szs.append(size)
 
         is_first = ax is axes[0]
-
         plot_scatter(
             ax,
             np.array(xs)*100, np.array(ys),
@@ -218,7 +222,7 @@ def _make_figure(
         columnspacing=0.55,
         bbox_to_anchor=(0.52, 1.08),
         handletextpad=0.1,
-        frameon=False
+        frameon=False,
     )
 
     fig.tight_layout()
@@ -230,40 +234,42 @@ def _make_figure(
 
 
 def make_figure_mknn(
-    pairs: list[tuple],
+    models: list[tuple],
     r2: dict,
     exclude_families: set[str],
     modalities: tuple[str, ...],
 ) -> None:
     _make_figure(
-        pairs, r2, exclude_families, modalities,
+        models, r2, exclude_families, modalities,
         col_map=MKNN_COL,
         metric_label="MKNN",
-        out_name="intramodal_ashod.pdf",
+        out_name="crossmodal.pdf",
     )
 
 
 def make_figure_cka(
-    pairs: list[tuple],
+    models: list[tuple],
     r2: dict,
     exclude_families: set[str],
     modalities: tuple[str, ...],
 ) -> None:
     _make_figure(
-        pairs, r2, exclude_families, modalities,
+        models, r2, exclude_families, modalities,
         col_map=CKA_COL,
         metric_label="CKA",
-        out_name="intramodal_ashod_cka.pdf",
+        out_name="crossmodal_cka.pdf",
     )
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--r2-json", type=Path, default=DEFAULT_R2_JSON,
-                        help="Path to Ashod's r2_vs_params JSON")
-    parser.add_argument("--modalities", nargs="+", default=list(MODALITIES),
+                        help="Path to r2_vs_params JSON")
+    parser.add_argument("--modalities", nargs="+",
+                        default=["jwst", "desi"],
                         choices=MODALITIES,
-                        help="Subset of modality panels to plot")
+                        help="Subset of modality panels to plot "
+                             "(legacysurvey has no values in the table)")
     parser.add_argument("--exclude-families", nargs="+", default=["dinov3"],
                         metavar="FAMILY",
                         help=f"Family names to drop (valid: "
@@ -275,14 +281,14 @@ def main():
     r2 = load_r2_json(args.r2_json)
     print(f"Loaded R² JSON from {args.r2_json}")
     print(f"Panels: {args.modalities}")
-    print(f"Pairs: {len(PAIRS)} total, "
-          f"{len([p for p in PAIRS if p[0] not in set(args.exclude_families)])} "
+    print(f"Models: {len(MODELS)} total, "
+          f"{len([m for m in MODELS if m[0] not in set(args.exclude_families)])} "
           f"after --exclude-families={args.exclude_families or '[]'}")
 
     exclude = set(args.exclude_families)
     modalities = tuple(args.modalities)
-    make_figure_mknn(PAIRS, r2, exclude, modalities)
-    make_figure_cka(PAIRS, r2, exclude, modalities)
+    make_figure_mknn(MODELS, r2, exclude, modalities)
+    make_figure_cka(MODELS, r2, exclude, modalities)
 
 
 if __name__ == "__main__":
