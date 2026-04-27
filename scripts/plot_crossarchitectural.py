@@ -43,6 +43,15 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 FIGS_DIR = ROOT / "figs"
 JWST_DIR = DATA_DIR / "jwst"
+JWST_GIO_DIR = DATA_DIR / "jwst_gio"
+
+# Per-family overrides for the parquet directory. Defaults to JWST_DIR.
+# llava_15 lives in jwst_gio because the jwst/ copy is row-misaligned with
+# the rest of the JWST parquets (Spearman ~0 vs other archs on per-row
+# centered-norm), which collapses cross-arch metrics to chance.
+JWST_DIR_PER_FAMILY = {
+    "llava_15": JWST_GIO_DIR,
+}
 
 sys.path.insert(0, str(ROOT / "src"))
 from pu.metrics import METRICS_REGISTRY, calibrate, compare  # noqa: E402
@@ -87,6 +96,8 @@ MODELS: list[tuple[str, str]] = [
     ("dinov3",    "vit7b16"),
     ("ijepa",     "huge"),
     ("ijepa",     "giant"),
+    ("llava_15",  "7b"),
+    ("llava_15",  "13b"),
     ("paligemma", "3b"),
     ("paligemma", "10b"),
     ("paligemma", "28b"),
@@ -134,7 +145,8 @@ def resolve_models(
         except KeyError:
             print(f"  Skipping {family}_{json_size}: not in R² JSON under 'hsc'")
             continue
-        path = JWST_DIR / f"jwst_{family}_{json_size}.parquet"
+        family_dir = JWST_DIR_PER_FAMILY.get(family, JWST_DIR)
+        path = family_dir / f"jwst_{family}_{json_size}.parquet"
         if not path.exists():
             print(f"  Skipping {family}_{json_size}: {path.name} not found")
             continue
