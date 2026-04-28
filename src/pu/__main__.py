@@ -139,12 +139,6 @@ def main():
     parser_percentiles.add_argument("--resize-mode", type=str, default="match", choices=["match", "fill"], help="Resize strategy (default: match).")
     parser_percentiles.add_argument("--output", type=str, default="data/percentiles.json", help="Output JSON path (default: data/percentiles.json).")
 
-    # Subparser for pushing embeddings to HF Hub
-    parser_push = subparsers.add_parser("push", help="Push parquet embeddings to a Hugging Face Hub dataset repo.")
-    parser_push.add_argument("parquet_file", nargs="?", default=None, help="Path to a specific parquet file to push.")
-    parser_push.add_argument("--all", action="store_true", dest="push_all", help="Push all data/*.parquet files.")
-    parser_push.add_argument("--dataset", required=True, help="HF dataset repo ID (e.g., 'Smith42/my-embeddings').")
-    parser_push.add_argument("--token", default=None, help="HF token (defaults to cached login).")
     # Subparser for layerwise extraction
     parser_extract = subparsers.add_parser("extract-layers", help="Extract embeddings from all layers of a model.")
     parser_extract.add_argument("--model", required=True, help="Model to extract (e.g., 'vit', 'dino').")
