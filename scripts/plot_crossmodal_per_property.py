@@ -162,7 +162,7 @@ def main():
     parser.add_argument("--r2-json", type=Path, default=DEFAULT_R2_JSON)
     parser.add_argument("--modalities", nargs="+", default=list(MODALITIES),
                         choices=MODALITIES)
-    parser.add_argument("--exclude-families", nargs="+", default=["dinov3"],
+    parser.add_argument("--exclude-families", nargs="*", default=["dinov3"],
                         metavar="FAMILY",
                         help=f"Family names to drop (valid: "
                              f"{sorted(FAMILY_STYLE)})")

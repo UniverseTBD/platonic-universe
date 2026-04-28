@@ -43,15 +43,6 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 FIGS_DIR = ROOT / "figs"
 JWST_DIR = DATA_DIR / "jwst"
-JWST_GIO_DIR = DATA_DIR / "jwst_gio"
-
-# Per-family overrides for the parquet directory. Defaults to JWST_DIR.
-# llava_15 lives in jwst_gio because the jwst/ copy is row-misaligned with
-# the rest of the JWST parquets (Spearman ~0 vs other archs on per-row
-# centered-norm), which collapses cross-arch metrics to chance.
-JWST_DIR_PER_FAMILY = {
-    "llava_15": JWST_GIO_DIR,
-}
 
 sys.path.insert(0, str(ROOT / "src"))
 from pu.metrics import METRICS_REGISTRY, calibrate, compare  # noqa: E402
@@ -145,8 +136,7 @@ def resolve_models(
         except KeyError:
             print(f"  Skipping {family}_{json_size}: not in R² JSON under 'hsc'")
             continue
-        family_dir = JWST_DIR_PER_FAMILY.get(family, JWST_DIR)
-        path = family_dir / f"jwst_{family}_{json_size}.parquet"
+        path = JWST_DIR / f"jwst_{family}_{json_size}.parquet"
         if not path.exists():
             print(f"  Skipping {family}_{json_size}: {path.name} not found")
             continue
@@ -479,7 +469,7 @@ def _make_figure(
                 seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
-        loc="upper center", fontsize=9, ncol=len(seen)//2,
+        loc="upper center", fontsize=9, ncol=(len(seen)//2 + 1),
         columnspacing=0.55,
         bbox_to_anchor=(0.52, 1.15),
         handletextpad=0.1,
