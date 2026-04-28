@@ -36,6 +36,8 @@ from plot_crossmodal import (  # noqa: E402
     MODALITY_LABEL,
     MODELS,
     R2_PROPS,
+    ancova_partial_slope,
+    family_demean,
     load_r2_json,
 )
 
@@ -78,6 +80,126 @@ def plot_panel(
 
     ax.tick_params(axis="x", direction="in")
     ax.tick_params(axis="y", direction="in")
+
+
+def plot_panel_partial(
+    ax,
+    x: np.ndarray,
+    y: np.ndarray,
+    families: list[str],
+) -> dict | None:
+    """Family-demeaned added-variable panel for the ANCOVA β₁."""
+    finite = np.isfinite(x) & np.isfinite(y)
+    if finite.sum() < 3:
+        return None
+    fams = [f for f, ok in zip(families, finite) if ok]
+    x_f = x[finite] * 100
+    y_f = y[finite]
+    x_res = family_demean(x_f, fams)
+    y_res = family_demean(y_f, fams)
+
+    for family in FAMILY_STYLE:
+        mask = np.array([f == family for f in fams])
+        if not mask.any():
+            continue
+        st = FAMILY_STYLE[family]
+        ax.scatter(
+            x_res[mask], y_res[mask],
+            color=st["color"], marker=st["marker"], s=30,
+            label=st["label"], edgecolors="black", linewidths=0.4,
+        )
+
+    ancova = ancova_partial_slope(x_f, y_f, fams)
+    ax.text(
+        0.97, 0.03,
+        f"β = {ancova['slope']:.3f}  (p = {ancova['p']:.1g})",
+        transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
+        bbox=None,
+    )
+    m, b = np.polyfit(x_res, y_res, 1)
+    xlim = ax.get_xlim()
+    xfit = np.linspace(xlim[0], xlim[1], 200)
+    ax.plot(xfit, m * xfit + b, color="gray", lw=2, ls="--", zorder=0)
+    ax.set_xlim(xlim)
+    ax.tick_params(axis="x", direction="in")
+    ax.tick_params(axis="y", direction="in")
+    return ancova
+
+
+def _make_partial_figure(
+    pairs: list[tuple],
+    r2: dict,
+    exclude_families: set[str],
+    modalities: tuple[str, ...],
+    col_map: dict[str, int],
+    metric_label: str,
+    out_name: str,
+) -> None:
+    kept = [p for p in pairs if p[0] not in exclude_families]
+    n_rows = len(R2_PROPS)
+    n_cols = len(modalities)
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(8, 6),
+        sharey="row", sharex="col", squeeze=False,
+    )
+
+    for i, prop in enumerate(R2_PROPS):
+        for j, modality in enumerate(modalities):
+            ax = axes[i, j]
+            col = col_map[modality]
+            xs, ys, fams = [], [], []
+            for p in kept:
+                family, size = p[0], p[1]
+                val = p[col]
+                if val is None:
+                    continue
+                xs.append(float(val) / 100.0)
+                ys.append(r2_for_model(r2, family, size, prop))
+                fams.append(family)
+            ancova = plot_panel_partial(
+                ax, np.array(xs), np.array(ys), fams,
+            )
+            if ancova is not None:
+                print(
+                    f"  ANCOVA  {metric_label:<4s} {modality:<13s} "
+                    f"{prop:<8s}  "
+                    f"slope={ancova['slope']:+.4f}  "
+                    f"F({ancova['df_num']},{ancova['df_denom']})="
+                    f"{ancova['F']:.2f}  "
+                    f"p={ancova['p']:.3g}  "
+                    f"(n={ancova['n']}, families={ancova['k']})"
+                )
+
+            if i == n_rows - 1:
+                ax.set_xlabel(
+                    f"Δ{MODALITY_LABEL[modality]} [{metric_label} %]",
+                    fontsize=10,
+                )
+            if j == 0:
+                ax.set_ylabel(
+                    rf"Δ{PROP_LABEL[prop]} $[R^2]$ ", fontsize=10,
+                )
+
+    seen: dict[str, object] = {}
+    for row in axes:
+        for ax in row:
+            for h, lab in zip(*ax.get_legend_handles_labels()):
+                if lab not in seen:
+                    seen[lab] = h
+    fig.legend(
+        seen.values(), list(seen.keys()),
+        loc="upper center", fontsize=9, ncol=len(seen),
+        columnspacing=0.55, bbox_to_anchor=(0.5, 1.0),
+        handletextpad=0.1, frameon=False,
+    )
+
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    plt.subplots_adjust(wspace=0.08, hspace=0.08)
+    out = FIGS_DIR / out_name
+    fig.savefig(out, dpi=300, bbox_inches="tight")
+    print(f"Saved {out}")
+    plt.close(fig)
 
 
 def _make_figure(
@@ -188,6 +310,16 @@ def main():
         MODELS, r2, exclude, modalities,
         col_map=CKA_COL, metric_label="CKA",
         out_name="crossmodal_cka_per_property.pdf",
+    )
+    _make_partial_figure(
+        MODELS, r2, exclude, modalities,
+        col_map=MKNN_COL, metric_label="MKNN",
+        out_name="crossmodal_per_property_partial.pdf",
+    )
+    _make_partial_figure(
+        MODELS, r2, exclude, modalities,
+        col_map=CKA_COL, metric_label="CKA",
+        out_name="crossmodal_cka_per_property_partial.pdf",
     )
 
 

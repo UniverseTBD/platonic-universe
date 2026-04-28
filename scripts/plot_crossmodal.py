@@ -21,6 +21,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
 from scipy.stats import pearsonr, spearmanr
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -114,6 +117,102 @@ def r2_for_model(r2: dict, family: str, size: str) -> float:
             )
         vals.append(float(entry[prop]["r2_mean"]))
     return float(np.mean(vals))
+
+
+def ancova_partial_slope(
+    x: np.ndarray, y: np.ndarray, families: list[str]
+) -> dict:
+    """Test partial effect of x on y after absorbing family means.
+
+    Fits ``y ~ x + C(family)`` via :mod:`statsmodels` OLS (Patsy
+    treatment-codes the family factor) and reports the Type-II ANOVA
+    F-test on ``x``. With one continuous covariate this is identical
+    to comparing the full model against ``y ~ C(family)``, and the
+    F equals the square of the t-statistic on the ``x`` coefficient.
+    """
+    finite = np.isfinite(x) & np.isfinite(y)
+    df = pd.DataFrame({
+        "y": y[finite],
+        "x": x[finite],
+        "family": [f for f, ok in zip(families, finite) if ok],
+    })
+    if len(df) < 3 or df["family"].nunique() < 2:
+        return {"slope": np.nan, "F": np.nan, "p": np.nan,
+                "df_num": 1, "df_denom": max(len(df) - 2, 0),
+                "n": len(df), "k": df["family"].nunique()}
+
+    model = smf.ols("y ~ x + C(family)", data=df).fit()
+    aov = sm.stats.anova_lm(model, typ=2)
+    return {
+        "slope": float(model.params["x"]),
+        "F": float(aov.loc["x", "F"]),
+        "p": float(aov.loc["x", "PR(>F)"]),
+        "df_num": int(aov.loc["x", "df"]),
+        "df_denom": int(aov.loc["Residual", "df"]),
+        "n": int(model.nobs),
+        "k": int(df["family"].nunique()),
+    }
+
+
+def family_demean(values: np.ndarray, families: list[str]) -> np.ndarray:
+    """Return values minus each entry's family-mean."""
+    out = np.array(values, dtype=float).copy()
+    fams = np.asarray(families)
+    for fam in np.unique(fams):
+        mask = fams == fam
+        out[mask] = out[mask] - out[mask].mean()
+    return out
+
+
+def plot_partial(
+    ax,
+    x: np.ndarray,
+    y: np.ndarray,
+    families: list[str],
+    xlabel: str,
+    ylabel: str,
+) -> dict | None:
+    """Added-variable plot for the ANCOVA partial slope.
+
+    Family-demeans both axes and scatters the residuals; the OLS slope
+    through them equals β₁ in ``y ~ x + family``, and its F-test
+    matches :func:`ancova_partial_slope`. Singleton families contribute
+    a (0, 0) point (no within-family variation) and so don't shift the
+    fit.
+    """
+    finite = np.isfinite(x) & np.isfinite(y)
+    x = x[finite]; y = y[finite]
+    fams = [f for f, ok in zip(families, finite) if ok]
+    if len(y) < 3:
+        return None
+    x_res = family_demean(x, fams)
+    y_res = family_demean(y, fams)
+
+    for family in FAMILY_STYLE:
+        mask = np.array([f == family for f in fams])
+        if not mask.any():
+            continue
+        st = FAMILY_STYLE[family]
+        ax.scatter(
+            x_res[mask], y_res[mask],
+            color=st["color"], marker=st["marker"], s=30,
+            label=st["label"], edgecolors="black", linewidths=0.4,
+        )
+
+    ancova = ancova_partial_slope(x, y, fams)
+    m, b = np.polyfit(x_res, y_res, 1)
+    xlim = ax.get_xlim()
+    xfit = np.linspace(xlim[0], xlim[1], 200)
+    ax.plot(xfit, m * xfit + b, color="gray", lw=2, ls="--", zorder=0)
+    ax.set_xlim(xlim)
+    ax.text(
+        0.05, 0.95,
+        f"β = {ancova['slope']:.3f} (p = {ancova['p']:.1g})\n",
+        transform=ax.transAxes, va="top", ha="left", fontsize=9,
+    )
+    ax.set_xlabel(xlabel, fontsize=11)
+    ax.set_ylabel(ylabel, fontsize=11)
+    return ancova
 
 
 def plot_scatter(
@@ -233,6 +332,63 @@ def _make_figure(
     plt.close(fig)
 
 
+def _make_partial_figure(
+    models: list[tuple],
+    r2: dict,
+    exclude_families: set[str],
+    modalities: tuple[str, ...],
+    col_map: dict[str, int],
+    metric_label: str,
+    out_name: str,
+) -> None:
+    kept = [m for m in models if m[0] not in exclude_families]
+    n_panels = len(modalities)
+    fig, axes = plt.subplots(1, n_panels, figsize=(8, 2.0), sharey=True)
+    if n_panels == 1:
+        axes = [axes]
+
+    for ax, modality in zip(axes, modalities):
+        col = col_map[modality]
+        xs, ys, fams = [], [], []
+        for m in kept:
+            family, size = m[0], m[1]
+            val = m[col]
+            if val is None:
+                continue
+            xs.append(float(val))
+            ys.append(r2_for_model(r2, family, size))
+            fams.append(family)
+
+        is_first = ax is axes[0]
+        plot_partial(
+            ax,
+            np.array(xs), np.array(ys),
+            fams,
+            xlabel=f"{MODALITY_LABEL[modality]} [$\Delta${metric_label} %]",
+            ylabel=(f"$\Delta R^2$" if is_first else ""),
+        )
+
+    seen: dict[str, object] = {}
+    for ax in axes:
+        ax.tick_params(axis="x", direction="in")
+        ax.tick_params(axis="y", direction="in")
+        for h, lab in zip(*ax.get_legend_handles_labels()):
+            if lab not in seen:
+                seen[lab] = h
+    fig.legend(
+        seen.values(), list(seen.keys()),
+        loc="upper center", fontsize=9, ncol=len(seen),
+        columnspacing=0.55, bbox_to_anchor=(0.52, 1.08),
+        handletextpad=0.1, frameon=False,
+    )
+    fig.tight_layout()
+    plt.subplots_adjust(wspace=0.05, hspace=0)
+    out = FIGS_DIR / out_name
+    fig.savefig(out, dpi=300, bbox_inches="tight")
+    print(f"Saved {out}")
+    plt.close(fig)
+
+
 def make_figure_mknn(
     models: list[tuple],
     r2: dict,
@@ -288,6 +444,16 @@ def main():
     modalities = tuple(args.modalities)
     make_figure_mknn(MODELS, r2, exclude, modalities)
     make_figure_cka(MODELS, r2, exclude, modalities)
+    _make_partial_figure(
+        MODELS, r2, exclude, modalities,
+        col_map=MKNN_COL, metric_label="MKNN",
+        out_name="crossmodal_partial.pdf",
+    )
+    _make_partial_figure(
+        MODELS, r2, exclude, modalities,
+        col_map=CKA_COL, metric_label="CKA",
+        out_name="crossmodal_cka_partial.pdf",
+    )
 
 
 if __name__ == "__main__":

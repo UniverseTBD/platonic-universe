@@ -23,6 +23,7 @@ dependencies = [
     "accelerate>=1.13.0",
     "huggingface-hub>=0.20.0",
     "scikit-misc>=0.5.2",
+    "statsmodels>=0.14.6",
 ]
 
 [project.optional-dependencies]
