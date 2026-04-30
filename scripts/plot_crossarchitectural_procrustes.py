@@ -179,7 +179,7 @@ def plot_scatter(
             xlim = ax.get_xlim()
             m, b = np.polyfit(x[finite], y[finite], 1)
             xfit = np.linspace(xlim[0], xlim[1], 200)
-            ax.plot(xfit, m * xfit + b, color="gray", lw=1, ls="--", zorder=0)
+            ax.plot(xfit, m * xfit + b, color="gray", lw=2, ls="--", zorder=0)
             ax.set_xlim(xlim)
     elif log_x:
         ax.set_xscale("log")
@@ -203,7 +203,7 @@ def make_figure(
 
     n_rows = len(modalities)
     fig, axes = plt.subplots(
-        n_rows, 2, figsize=(7, 2.0 * n_rows),
+        n_rows, 2, figsize=(4.5, 2.0 * n_rows), sharey="row"
     )
     if n_rows == 1:
         axes = np.array([axes])
@@ -223,7 +223,7 @@ def make_figure(
         plot_scatter(
             ax_r2, r2_vals, dists, fams,
             xlabel=f"{MODALITY_LABEL[modality]} [Mean $R^2$]",
-            ylabel="$d_{proc}$",
+            ylabel="",
             log_x=False,
         )
 
@@ -236,15 +236,15 @@ def make_figure(
                 seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
-        loc="upper center", fontsize=9, ncol=len(seen),
+        loc="upper center", fontsize=9, ncol=len(seen)//2,
         columnspacing=0.55,
-        bbox_to_anchor=(0.52, 1.04),
+        bbox_to_anchor=(0.52, 1.1),
         handletextpad=0.1,
         frameon=False,
     )
 
     fig.tight_layout()
-    plt.subplots_adjust(wspace=0.25, hspace=0.45)
+    plt.subplots_adjust(wspace=0.05, hspace=0.35)
     out = FIGS_DIR / out_name
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")

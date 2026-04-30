@@ -177,7 +177,7 @@ def make_figure(
                     seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
-        loc="upper center", fontsize=9, ncol=(len(seen) // 2 + 1),
+        loc="upper center", fontsize=9, ncol=(len(seen)//2),
         columnspacing=0.55,
         bbox_to_anchor=(0.52, 1.06),
         handletextpad=0.1,
