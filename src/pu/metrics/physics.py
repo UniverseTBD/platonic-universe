@@ -13,20 +13,19 @@ predict physical galaxy properties — and larger models should do so better.
 Requires: Smith42/galaxies (revision v2.0) which bundles metadata directly.
 """
 
+
 import numpy as np
 from numpy.typing import NDArray
-from typing import Any
-
-from sklearn.decomposition import PCA
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.metrics import r2_score
-from sklearn.model_selection import cross_val_score, KFold
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import pdist
 from scipy.stats import spearmanr
-
+from scipy.stats import wasserstein_distance as w_d
+from sklearn.decomposition import PCA
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+from sklearn.model_selection import KFold, cross_val_score
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 
 # ---------------------------------------------------------------------------
 # Canonical physical properties to probe, grouped by science domain.
@@ -555,3 +554,26 @@ def _clean_inputs(
         raise ValueError("No valid samples after removing NaN/Inf")
 
     return Z, y
+
+
+def wass_distance(
+    nn1,
+    nn2,
+    params,
+):
+    """
+    Wasserstein distance calculated between physical parameters distributions in two embedding spaces.
+
+    Args:
+        nn1: (n_samples, n_neighbors) neighbor matrix in first embedding space. Values are indices that correspond to param array.
+        nn2: (n_samples, n_neighbors) neighbor matrix in second embedding space. Values are indices that correspond to param array.
+        params: np.array of physical parameters.
+
+    Returns:
+        Average wasserstein distance.
+    """
+
+    w_ds = [w_d(params[nn1[idx]], params[nn2[idx]]) for idx in range(nn1.shape[0])]
+    return w_ds
+
+    
