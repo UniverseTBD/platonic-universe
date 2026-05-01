@@ -31,6 +31,17 @@ cosmosweb = [
     "matplotlib>=3.9.0",
     "tqdm>=4.66.0",
 ]
+platonic-compute = [
+    "huggingface-hub>=0.20.0",
+    "pynndescent>=0.5.0",
+    "umap-learn>=0.5.0",
+    "faiss-cpu>=1.8.0",
+    "tqdm>=4.66.0",
+]
+platonic-extract = [
+    "huggingface-hub>=0.20.0",
+    "tqdm>=4.66.0",
+]
 
 [build-system]  
 requires = ["setuptools>=42", "wheel", "pybind11>=2.10"]
