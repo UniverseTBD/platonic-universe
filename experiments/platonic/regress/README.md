@@ -65,12 +65,34 @@ The JSON layout matches what's consumed by Smith42's plotting branch:
 
 ```
 experiments/platonic/regress/
-├── pu_regress.py     worker: claim → extract → probe → upload → release
-├── setup_hf.py       one-time bootstrap of the coordination dataset
-├── aggregate.py      pull all done/*.parquet -> one summary parquet (+ optional JSON)
-├── slurm/            SBATCH wrapper
-└── vast/             tmux launcher (one worker per GPU)
+├── pu_regress.py        worker: claim → extract → probe → kNN → UMAP → upload → release
+├── pu_regress_pairs.py  aggregator: pulls all neighbour matrices,
+│                        computes intramodal + crossmodal MKNN + Wasserstein
+├── setup_hf.py          one-time bootstrap of the coordination dataset
+├── aggregate.py         pull all done/*.parquet -> one summary parquet (+ optional JSON)
+├── slurm/               SBATCH wrapper
+└── vast/                tmux launcher (one worker per GPU)
 ```
+
+## Per-tuple output files
+
+Each completed `(modality, alias, size)` tuple uploads three parquets to
+`done/<tag>/` on the coordination dataset:
+
+| File | Per-row contents |
+|---|---|
+| `probe.parquet` | one row per physical property: $R^2$ mean, $R^2$ std, permutation $p$-value, sample sizes, hyperparams |
+| `neighbours.parquet` | one row per galaxy: the $(k,)$ integer indices of its $k$ nearest neighbours in this tuple's embedding space |
+| `umap.parquet` | one row per galaxy: 2-D UMAP coordinates from a precomputed kNN graph (cosine, $k = 50$) |
+
+The `pairs.parquet` produced by `pu_regress_pairs.py` consumes all the
+`neighbours.parquet` files plus a re-streamed catalog and produces:
+
+| Column | Meaning |
+|---|---|
+| `pair_kind` | `intramodal` (adjacent sizes within a family on the same modality) or `crossmodal` (HSC vs JWST of the same model size) |
+| `mknn` | mean per-row $|\mathcal N_a \cap \mathcal N_b| / k$ |
+| `wass_<property>` | mean per-row Wasserstein-1 distance between the two sides' physics-label distributions on their kNN sets |
 
 ## Cost
 
