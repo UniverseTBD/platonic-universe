@@ -42,6 +42,11 @@ platonic-extract = [
     "huggingface-hub>=0.20.0",
     "tqdm>=4.66.0",
 ]
+platonic-regress = [
+    "huggingface-hub>=0.20.0",
+    "tqdm>=4.66.0",
+    "matplotlib>=3.9.0",
+]
 
 [build-system]  
 requires = ["setuptools>=42", "wheel", "pybind11>=2.10"]
