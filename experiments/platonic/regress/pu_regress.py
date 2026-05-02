@@ -24,6 +24,8 @@ Optional environment:
     PU_REGRESS_BATCH_SIZE       default 16
     PU_REGRESS_CV_FOLDS         default 5
     PU_REGRESS_PCA_COMPONENTS   default 0 (disabled)
+    PU_REGRESS_N_PERM           default 100; permutation reps for p-value
+    PU_REGRESS_KNN_K            default 10; k for the per-tuple kNN graph
     PU_REGRESS_STALE_S          default 3600 (1 h)
     PU_REGRESS_TARGET           e.g. "hsc/dino_giant" — single-tuple mode
 """
@@ -64,6 +66,8 @@ N_USE      = int(os.environ.get("PU_REGRESS_N_USE", "45000"))
 BATCH_SIZE = int(os.environ.get("PU_REGRESS_BATCH_SIZE", "16"))
 CV_FOLDS   = int(os.environ.get("PU_REGRESS_CV_FOLDS", "5"))
 PCA_K      = int(os.environ.get("PU_REGRESS_PCA_COMPONENTS", "0")) or None
+N_PERM     = int(os.environ.get("PU_REGRESS_N_PERM", "100"))
+KNN_K      = int(os.environ.get("PU_REGRESS_KNN_K", "10"))
 STALE_S    = int(os.environ.get("PU_REGRESS_STALE_S", "3600"))
 TARGET     = os.environ.get("PU_REGRESS_TARGET", "")  # single-tuple mode
 
@@ -130,10 +134,28 @@ def tag_for(modality: str, alias: str, size: str) -> str:
 # HF claim / release coordination
 # ---------------------------------------------------------------------------
 def hf_list_state() -> tuple[set[str], dict[str, datetime]]:
-    """Return (done_tags, running_tag -> last_modified)."""
+    """Return (done_tags, running_tag -> last_modified).
+
+    A tag is 'done' iff both done/<tag>/probe.parquet and
+    done/<tag>/neighbours.parquet are present on the dataset (legacy single-
+    file done/<tag>.parquet entries are also accepted for back-compat with
+    the pre-pairs layout).
+    """
     files = api.list_repo_files(COORD_REPO, repo_type="dataset")
-    done = {f.replace("done/", "").replace(".parquet", "")
-            for f in files if f.startswith("done/") and f.endswith(".parquet")}
+    done_legacy = {f.replace("done/", "").replace(".parquet", "")
+                   for f in files
+                   if f.startswith("done/") and f.endswith(".parquet")
+                   and "/" not in f.replace("done/", "")}
+    # New folder layout: done/<tag>/{probe,neighbours}.parquet
+    by_tag: dict[str, set[str]] = {}
+    for f in files:
+        if f.startswith("done/") and "/" in f[len("done/"):] and f.endswith(".parquet"):
+            tag = f[len("done/"):].split("/", 1)[0]
+            leaf = f[len("done/"):].split("/", 1)[1]
+            by_tag.setdefault(tag, set()).add(leaf)
+    done_new = {tag for tag, leaves in by_tag.items()
+                if {"probe.parquet", "neighbours.parquet"}.issubset(leaves)}
+    done = done_legacy | done_new
     running_tags = {f.replace("running/", "").replace(".running", "")
                     for f in files
                     if f.startswith("running/") and f.endswith(".running")}
@@ -371,26 +393,116 @@ def extract_embeddings(alias: str, size: str, hf_id: str,
 # ---------------------------------------------------------------------------
 # Per-tuple regression
 # ---------------------------------------------------------------------------
+def _probe_with_pvalue(Z: np.ndarray, y: np.ndarray
+                       ) -> tuple[float, float, float]:
+    """Returns (r2_mean, r2_std, p_value) where p is the one-sided
+    permutation-test p-value for H0: no linear relationship between Z and y.
+    Uses N_PERM shuffles of y, refits the same CV pipeline."""
+    res = linear_probe(Z, y, cv=CV_FOLDS, pca_components=PCA_K)
+    if isinstance(res, dict):
+        observed = float(res.get("mean", float("nan")))
+        std      = float(res.get("std",  float("nan")))
+    else:
+        observed, std = float(res), float("nan")
+    if N_PERM <= 0 or not np.isfinite(observed):
+        return observed, std, float("nan")
+    rng = np.random.default_rng(0)
+    null = []
+    for _ in range(N_PERM):
+        y_perm = rng.permutation(y)
+        rp = linear_probe(Z, y_perm, cv=CV_FOLDS, pca_components=PCA_K)
+        rp_mean = rp["mean"] if isinstance(rp, dict) else rp
+        null.append(float(rp_mean))
+    null_arr = np.asarray(null)
+    # Phipson-Smyth correction so p > 0 always.
+    p_value = (1 + int(np.sum(null_arr >= observed))) / (N_PERM + 1)
+    return observed, std, float(p_value)
+
+
+def _build_knn(Z: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row kNN indices + cosine distances (excluding self).
+    Returns (idx, dist) where idx is (n, k) int32 and dist is (n, k) float32.
+    Uses faiss if available, else sklearn."""
+    Zc = np.ascontiguousarray(Z, dtype=np.float32)
+    Zc /= (np.linalg.norm(Zc, axis=1, keepdims=True) + 1e-12)
+    try:
+        import faiss
+        d = Zc.shape[1]
+        index = faiss.IndexFlatIP(d)
+        index.add(Zc)
+        sim, idx = index.search(Zc, k + 1)
+        # cosine distance = 1 - inner-product similarity (since vectors are unit-norm)
+        dist = (1.0 - sim).astype(np.float32)
+        return idx[:, 1:].astype(np.int32), dist[:, 1:]
+    except Exception:
+        from sklearn.neighbors import NearestNeighbors
+        nn = NearestNeighbors(n_neighbors=k + 1, metric="cosine").fit(Zc)
+        dist, idx = nn.kneighbors(return_distance=True)
+        return idx[:, 1:].astype(np.int32), dist[:, 1:].astype(np.float32)
+
+
+def _umap_2d(Z: np.ndarray, idx: np.ndarray, dist: np.ndarray,
+             k: int) -> np.ndarray | None:
+    """Run UMAP using a precomputed kNN graph. Returns (n, 2) float32 or
+    None if umap-learn isn't installed (in which case the worker still
+    succeeds, just no umap.parquet is uploaded)."""
+    try:
+        import umap
+    except Exception:
+        return None
+    Zn = Z / (np.linalg.norm(Z, axis=1, keepdims=True) + 1e-12)
+    emb2d = umap.UMAP(
+        n_neighbors=k, metric="cosine",
+        precomputed_knn=(idx, dist, None),
+        random_state=0, n_epochs=200,
+    ).fit_transform(Zn)
+    return emb2d.astype(np.float32)
+
+
 def regress_tuple(alias: str, size: str, hf_id: str, params_M: int,
-                  modality: str, catalog: dict[str, np.ndarray]) -> pl.DataFrame:
+                  modality: str, catalog: dict[str, np.ndarray]
+                  ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame | None]:
+    """Returns (probe_df, neighbors_df, umap_df).
+
+    probe_df has one row per physics property: R² mean + std + permutation p-value.
+    neighbors_df has one row per galaxy: the (k,) integer indices of its k
+    nearest neighbours in this tuple's embedding space.
+    umap_df has one row per galaxy: 2-D UMAP coords (or None if umap-learn
+    isn't available).
+    """
     Z = extract_embeddings(alias, size, hf_id, modality, N_USE)
+
+    log(f"  building cosine kNN graph (k={KNN_K})")
+    nn_idx, nn_dist = _build_knn(Z, KNN_K)
+    nn_df = pl.DataFrame({
+        "galaxy_idx":  np.arange(len(Z), dtype=np.int32),
+        "neighbours":  pl.Series(
+            "neighbours",
+            nn_idx,
+            dtype=pl.Array(pl.Int32, KNN_K),
+        ),
+    })
+
+    log("  computing UMAP-2D (precomputed kNN)")
+    emb2d = _umap_2d(Z, nn_idx, nn_dist, KNN_K)
+    umap_df = None
+    if emb2d is not None:
+        umap_df = pl.DataFrame({
+            "galaxy_idx": np.arange(len(Z), dtype=np.int32),
+            "umap_x":     emb2d[:, 0],
+            "umap_y":     emb2d[:, 1],
+        })
+
     rows = []
     for prop, y in catalog.items():
         n = min(len(Z), len(y))
         try:
-            res = linear_probe(Z[:n], y[:n], cv=CV_FOLDS, pca_components=PCA_K)
-            # linear_probe declares -> float but actually returns
-            # {"mean": ..., "std": ..., "folds": [...]}. Be defensive in case
-            # that contract gets fixed upstream.
-            if isinstance(res, dict):
-                r2_mean = float(res.get("mean", float("nan")))
-                r2_std  = float(res.get("std",  float("nan")))
-            else:
-                r2_mean, r2_std = float(res), float("nan")
+            r2_mean, r2_std, p_val = _probe_with_pvalue(Z[:n], y[:n])
         except Exception as e:
             log(f"    {prop}: probe failed: {type(e).__name__}: {e}")
-            r2_mean, r2_std = float("nan"), float("nan")
-        log(f"    R²({prop}) = {r2_mean:.4f} ± {r2_std:.4f}")
+            r2_mean, r2_std, p_val = float("nan"), float("nan"), float("nan")
+        log(f"    R²({prop}) = {r2_mean:.4f} ± {r2_std:.4f}  "
+            f"p={p_val:.4f}")
         rows.append({
             "modality": modality,
             "model_alias": alias,
@@ -400,12 +512,14 @@ def regress_tuple(alias: str, size: str, hf_id: str, params_M: int,
             "property": prop,
             "r2_mean": r2_mean,
             "r2_std":  r2_std,
+            "r2_pvalue": p_val,
             "n": int(n),
             "d": int(Z.shape[1]),
             "cv_folds": CV_FOLDS,
             "pca_k": PCA_K or 0,
+            "n_perm": N_PERM,
         })
-    return pl.DataFrame(rows)
+    return pl.DataFrame(rows), nn_df, umap_df
 
 
 # ---------------------------------------------------------------------------
@@ -456,18 +570,38 @@ def main() -> int:
         try:
             if catalog is None:
                 catalog = collect_catalog(N_USE)
-            df = regress_tuple(alias, size, hf_id, params_M, modality, catalog)
-            tmp = OUT_DIR / f"{tag}.parquet.tmp.{os.getpid()}"
-            final = OUT_DIR / f"{tag}.parquet"
-            df.write_parquet(tmp, compression="zstd")
-            os.rename(tmp, final)
-            api.upload_file(
-                path_or_fileobj=str(final),
-                path_in_repo=f"done/{tag}.parquet",
-                repo_id=COORD_REPO, repo_type="dataset",
-                commit_message=f"done {tag}",
+            probe_df, nn_df, umap_df = regress_tuple(
+                alias, size, hf_id, params_M, modality, catalog,
             )
-            log(f"[done] {tag} -> done/{tag}.parquet")
+            # Stage parquets into a per-tag folder, then upload as one
+            # commit via upload_folder (cuts HF commit volume vs uploading
+            # files separately).
+            tag_dir = OUT_DIR / tag
+            tag_dir.mkdir(exist_ok=True)
+            probe_path = tag_dir / "probe.parquet"
+            nn_path    = tag_dir / "neighbours.parquet"
+            probe_df.write_parquet(probe_path, compression="zstd")
+            nn_df.write_parquet(nn_path, compression="zstd")
+            if umap_df is not None:
+                umap_path = tag_dir / "umap.parquet"
+                umap_df.write_parquet(umap_path, compression="zstd")
+            import shutil
+            staging = OUT_DIR / f".upload_{tag}_{os.getpid()}"
+            (staging / f"done/{tag}").mkdir(parents=True, exist_ok=True)
+            shutil.copy2(probe_path, staging / f"done/{tag}/probe.parquet")
+            shutil.copy2(nn_path,    staging / f"done/{tag}/neighbours.parquet")
+            if umap_df is not None:
+                shutil.copy2(umap_path, staging / f"done/{tag}/umap.parquet")
+            try:
+                api.upload_folder(
+                    folder_path=str(staging),
+                    repo_id=COORD_REPO, repo_type="dataset",
+                    commit_message=f"done {tag}",
+                )
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+            log(f"[done] {tag} -> done/{tag}/"
+                f"{{probe,neighbours{'' if umap_df is None else ',umap'}}}.parquet")
         except KeyboardInterrupt:
             release_claim(tag)
             raise
