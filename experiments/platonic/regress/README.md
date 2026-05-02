@@ -127,11 +127,16 @@ python 03_plot_umap.py \
     --out-dir   ./derived
 ```
 
-Output: `derived/umap_hsc.pdf` and `derived/umap_jwst.pdf`. Each PDF
-has six pages (one per physics property). Within a page, rows are
-model families and columns are sizes, colourised by the page's
-property. The same random subsample of galaxies is used for every
-panel so cross-panel comparisons are visually fair.
+Default output is **per-tuple PNGs** under
+`derived/umap/<modality>/<alias>_<size>__<property>.png` — one file per
+(modality, alias, size, property), so a downstream analysis can grab
+exactly the panel it wants.
+
+Add `--pdf` to also render multi-page overview PDFs at
+`derived/umap_<modality>.pdf`. Each PDF has six pages (one per
+property); rows are model families, columns are sizes. The same
+random subsample of galaxies is used for every panel so cross-panel
+comparisons are visually fair.
 
 ## Knobs
 

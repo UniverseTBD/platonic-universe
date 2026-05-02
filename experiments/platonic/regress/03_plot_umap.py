@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Step 3 — UMAP figures.
 
-Reads every per-tuple ``umap.parquet`` produced by step 1 and produces
-one multi-page PDF per modality. Each page colours the same UMAP grid
-by a different physics property (redshift, mass, sSFR, mag_g, mag_r,
-g-r). Within a page, rows are model families and columns are sizes,
-so reviewers can read structure-vs-scale trends at a glance.
+Reads every per-tuple ``umap.parquet`` produced by step 1 and renders
+two output flavours, both populated by default:
+
+  - ``umap/<modality>/<alias>_<size>__<property>.png`` — one PNG per
+    (tuple, property), so a downstream analysis can grab a specific
+    panel without slicing a PDF.
+  - ``umap_<modality>.pdf`` (with ``--pdf``) — multi-page overview;
+    one page per property, grid = family × size for at-a-glance
+    structure-vs-scale comparison.
+
+Within both outputs, every panel is plotted using the same random
+subsample of galaxies so cross-panel comparison is visually fair.
 
 Usage
 -----
@@ -62,6 +69,12 @@ def parse_args() -> argparse.Namespace:
                    help="Where to keep pulled parquets (default: $out_dir/_regress_cache).")
     p.add_argument("--n-points", type=int, default=15_000,
                    help="Subsample to this many galaxies per panel (default 15k).")
+    p.add_argument("--pdf", action="store_true",
+                   help="Also render the multi-page PDF overview per modality.")
+    p.add_argument("--no-png", action="store_true",
+                   help="Skip the per-tuple PNGs (only meaningful with --pdf).")
+    p.add_argument("--png-dpi", type=int, default=150,
+                   help="DPI for individual PNGs.")
     return p.parse_args()
 
 
@@ -113,42 +126,66 @@ def colour_range(name: str, values: np.ndarray) -> tuple[float, float]:
     return float(lo), float(hi)
 
 
-def render_modality_pdf(modality: str, done_dir: Path,
-                        catalog: dict[str, np.ndarray],
-                        out_pdf: Path, n_points: int) -> None:
-    families = list(FAMILY_SIZES.items())
-    n_rows = len(families)
-    n_cols = max(len(s) for _, s in families)
-
-    # Pre-load all the umap coords for this modality (one read per tuple).
+def _load_modality_coords(modality: str, done_dir: Path
+                          ) -> dict[tuple[str, str], np.ndarray]:
     coords: dict[tuple[str, str], np.ndarray] = {}
-    for alias, sizes in families:
+    for alias, sizes in FAMILY_SIZES.items():
         for size in sizes:
-            tag = f"{modality}__{alias}_{size}"
-            p = done_dir / tag / "umap.parquet"
+            p = done_dir / f"{modality}__{alias}_{size}" / "umap.parquet"
             if not p.exists():
                 continue
             df = pl.read_parquet(p)
-            xy = np.stack([df["umap_x"].to_numpy(),
-                           df["umap_y"].to_numpy()], axis=1)
-            coords[(alias, size)] = xy
+            coords[(alias, size)] = np.stack(
+                [df["umap_x"].to_numpy(), df["umap_y"].to_numpy()], axis=1)
+    return coords
 
-    # Subsample once so every panel uses the same galaxies (otherwise
-    # comparison across panels is visually misleading).
-    n_galaxies = max(len(v) for v in coords.values()) if coords else 0
-    if n_galaxies == 0:
-        print(f"  [skip] {modality}: no umap parquets found")
-        return
-    rng = np.random.default_rng(0)
-    keep = np.sort(rng.choice(n_galaxies, size=min(n_points, n_galaxies),
-                              replace=False))
 
+def render_individual_pngs(modality: str,
+                           coords: dict[tuple[str, str], np.ndarray],
+                           catalog: dict[str, np.ndarray],
+                           keep: np.ndarray, out_dir: Path,
+                           dpi: int) -> int:
+    """One PNG per (tuple, property)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    n_written = 0
+    for prop in PROPERTIES:
+        y = catalog[prop]
+        vmin, vmax = colour_range(prop, y[keep])
+        for (alias, size), xy in coords.items():
+            n = min(len(xy), len(y))
+            sub = keep[keep < n]
+            fig, ax = plt.subplots(figsize=(4.5, 4.5))
+            sc = ax.scatter(
+                xy[sub, 0], xy[sub, 1],
+                c=y[sub], cmap="viridis",
+                vmin=vmin, vmax=vmax,
+                s=3, alpha=0.6, linewidths=0,
+            )
+            ax.set_xticks([]); ax.set_yticks([])
+            ax.set_xlabel("UMAP 1"); ax.set_ylabel("UMAP 2")
+            ax.set_title(f"{modality} · {alias} · {size}", fontsize=10)
+            cb = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.02)
+            cb.set_label(prop, fontsize=9)
+            fig.tight_layout()
+            png = out_dir / f"{alias}_{size}__{prop}.png"
+            fig.savefig(png, dpi=dpi)
+            plt.close(fig)
+            n_written += 1
+    return n_written
+
+
+def render_modality_pdf(modality: str,
+                        coords: dict[tuple[str, str], np.ndarray],
+                        catalog: dict[str, np.ndarray],
+                        keep: np.ndarray, out_pdf: Path) -> None:
+    families = list(FAMILY_SIZES.items())
+    n_rows = len(families)
+    n_cols = max(len(s) for _, s in families)
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out_pdf) as pdf:
         for prop in PROPERTIES:
             y = catalog[prop]
             vmin, vmax = colour_range(prop, y[keep])
-
             fig, axes = plt.subplots(
                 n_rows, n_cols,
                 figsize=(2.8 * n_cols, 2.8 * n_rows),
@@ -176,7 +213,6 @@ def render_modality_pdf(modality: str, done_dir: Path,
                     if c == 0:
                         ax.set_ylabel(alias, fontsize=9, rotation=0,
                                       ha="right", va="center", labelpad=20)
-
             cax = fig.add_axes([0.92, 0.15, 0.012, 0.7])
             fig.colorbar(sc, cax=cax, label=prop)
             fig.suptitle(
@@ -187,7 +223,6 @@ def render_modality_pdf(modality: str, done_dir: Path,
                                 wspace=0.05, hspace=0.10)
             pdf.savefig(fig, dpi=150)
             plt.close(fig)
-
     print(f"wrote {out_pdf}")
 
 
@@ -216,9 +251,25 @@ def main() -> int:
         return 1
     catalog = load_catalog(n_use)
 
+    rng = np.random.default_rng(0)
     for modality in MODALITIES:
-        out_pdf = args.out_dir / f"umap_{modality}.pdf"
-        render_modality_pdf(modality, done_dir, catalog, out_pdf, args.n_points)
+        coords = _load_modality_coords(modality, done_dir)
+        if not coords:
+            print(f"  [skip] {modality}: no umap parquets found")
+            continue
+        n_galaxies = max(len(v) for v in coords.values())
+        keep = np.sort(rng.choice(n_galaxies,
+                                  size=min(args.n_points, n_galaxies),
+                                  replace=False))
+        if not args.no_png:
+            png_dir = args.out_dir / "umap" / modality
+            n = render_individual_pngs(
+                modality, coords, catalog, keep, png_dir, args.png_dpi)
+            print(f"wrote {n} pngs under {png_dir}/")
+        if args.pdf:
+            render_modality_pdf(
+                modality, coords, catalog, keep,
+                args.out_dir / f"umap_{modality}.pdf")
 
     return 0
 
