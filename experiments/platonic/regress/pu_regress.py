@@ -48,7 +48,6 @@ from torch.utils.data import DataLoader
 
 from pu.metrics.physics import linear_probe
 from pu.models import get_adapter
-from pu.pu_datasets import get_dataset_adapter
 from pu.pu_datasets.cosmosweb import CATALOG_COLUMNS
 
 # ---------------------------------------------------------------------------
@@ -310,8 +309,14 @@ def make_preprocessor(adapter, modality: str):
 
 def extract_embeddings(alias: str, size: str, hf_id: str,
                        modality: str, n_use: int) -> np.ndarray:
-    """Extract a (n, d) embedding matrix for n_use galaxies. Cached on local
-    disk; identical-key second calls are instant."""
+    """Extract a (n, d) embedding matrix for n_use galaxies.
+
+    Streams cosmosweb directly without going through the dataset adapter,
+    because the adapter's prepare() signature doesn't accept the extra
+    flags we need (telescope, n_galaxies, remove_image_col) and its blanket
+    `.remove_columns(image_cols)` would silently delete AstroPT's
+    in-place-overwritten output column.
+    """
     cache = DLCACHE / f"emb_{modality}_{alias}_{size}_{n_use}.npy"
     if cache.exists():
         log(f"  using cached {cache}")
@@ -322,20 +327,29 @@ def extract_embeddings(alias: str, size: str, hf_id: str,
     adapter.load()
 
     proc_fn = make_preprocessor(adapter, modality)
-    ds_adapter = get_dataset_adapter("cosmosweb")(DATASET, modality)
-    ds_adapter.load()
-    ds = ds_adapter.prepare(
-        processor=proc_fn,
-        modes=[modality],
-        filterfun=lambda row: True,
-        telescope=modality,
-        n_galaxies=n_use,
-        remove_image_col=(alias != "astropt"),
+    image_col = f"{modality}_images"
+
+    # Stream cosmosweb. select_columns first so we don't pay decoder cost on
+    # the other side's image column. filter is a no-op (kept for parity with
+    # the adapter API). map applies the model's preprocessor.
+    ds = (
+        load_dataset(DATASET, split="train", streaming=True)
+        .select_columns([image_col])
+        .map(proc_fn)
     )
+
+    # AstroPT's preprocessor *overwrites* `hsc_images` in-place with a
+    # tensor and adds `hsc_positions`. For all other adapters, the
+    # preprocessor outputs a clean `<modality>` key (no `_images` suffix).
+    # Remove any leftover columns that aren't part of the embed_for_mode
+    # input contract.
     if alias == "astropt":
         ds = ds.select_columns([f"{modality}_images", f"{modality}_positions"])
     else:
-        ds = ds.select_columns([modality])
+        ds = ds.remove_columns([image_col]).select_columns([modality])
+
+    if hasattr(ds, "with_format"):
+        ds = ds.with_format("torch")
 
     dl = DataLoader(ds, batch_size=BATCH_SIZE, num_workers=0)
     chunks: list[np.ndarray] = []
@@ -364,11 +378,19 @@ def regress_tuple(alias: str, size: str, hf_id: str, params_M: int,
     for prop, y in catalog.items():
         n = min(len(Z), len(y))
         try:
-            r2 = linear_probe(Z[:n], y[:n], cv=CV_FOLDS, pca_components=PCA_K)
+            res = linear_probe(Z[:n], y[:n], cv=CV_FOLDS, pca_components=PCA_K)
+            # linear_probe declares -> float but actually returns
+            # {"mean": ..., "std": ..., "folds": [...]}. Be defensive in case
+            # that contract gets fixed upstream.
+            if isinstance(res, dict):
+                r2_mean = float(res.get("mean", float("nan")))
+                r2_std  = float(res.get("std",  float("nan")))
+            else:
+                r2_mean, r2_std = float(res), float("nan")
         except Exception as e:
             log(f"    {prop}: probe failed: {type(e).__name__}: {e}")
-            r2 = float("nan")
-        log(f"    R²({prop}) = {r2:.4f}")
+            r2_mean, r2_std = float("nan"), float("nan")
+        log(f"    R²({prop}) = {r2_mean:.4f} ± {r2_std:.4f}")
         rows.append({
             "modality": modality,
             "model_alias": alias,
@@ -376,7 +398,8 @@ def regress_tuple(alias: str, size: str, hf_id: str, params_M: int,
             "model_hf_id": hf_id,
             "params_M": int(params_M),
             "property": prop,
-            "r2_mean": float(r2),
+            "r2_mean": r2_mean,
+            "r2_std":  r2_std,
             "n": int(n),
             "d": int(Z.shape[1]),
             "cv_folds": CV_FOLDS,

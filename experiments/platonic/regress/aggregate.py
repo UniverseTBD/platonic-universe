@@ -69,13 +69,16 @@ def main() -> int:
 
     if args.json_out:
         # Smith42-compatible nested layout:
-        # { modality: { model_alias: { size: { property: { r2_mean: ..., r2_std: ... } } } } }
+        # { modality: { model_alias: { size: { property: { r2_mean, r2_std } } } } }
         nested: dict = {}
         for row in df.iter_rows(named=True):
-            (nested.setdefault(row["modality"], {})
-                   .setdefault(row["model_alias"], {})
-                   .setdefault(row["model_size"], {})
-                   .setdefault(row["property"], {}))["r2_mean"] = row["r2_mean"]
+            entry = (nested.setdefault(row["modality"], {})
+                            .setdefault(row["model_alias"], {})
+                            .setdefault(row["model_size"], {})
+                            .setdefault(row["property"], {}))
+            entry["r2_mean"] = row["r2_mean"]
+            if "r2_std" in row:
+                entry["r2_std"] = row["r2_std"]
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
         with open(args.json_out, "w") as f:
             json.dump(nested, f, indent=2, default=float)
