@@ -4,7 +4,7 @@
 # the shared HF coordination dataset.
 #
 # USAGE on a freshly-rented box:
-#   1. ensure venv is set up and pu_regress.py + setup_hf.py are at $WORKDIR
+#   1. ensure venv is set up and 01_extract_and_probe.py + setup_hf.py are at $WORKDIR
 #   2. export HF_TOKEN=... PU_REGRESS_RESULTS_REPO=<owner>/<dataset>
 #   3. bash vast_regress.sh
 
@@ -35,7 +35,7 @@ for ((g=0; g<N_GPUS; g++)); do
         export PU_REGRESS_DLCACHE='$SCRATCH/regress_dl_g${g}' && \
         export HF_HOME='$SCRATCH/hf_cache_g${g}' && \
         mkdir -p \$PU_REGRESS_DLCACHE \$HF_HOME && \
-        python pu_regress.py 2>&1 | tee '$SCRATCH/regress_g${g}.log'
+        python 01_extract_and_probe.py 2>&1 | tee '$SCRATCH/regress_g${g}.log'
         echo --- worker $g done; sleep 3600
     "
     echo "  worker $g  GPU=$g  tmux=$NAME"

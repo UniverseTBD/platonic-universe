@@ -1,33 +1,47 @@
 #!/usr/bin/env python3
-"""Cooperative physics-regression worker.
+"""Step 1 — distributed extract + linear probe.
 
-For each (model, size, modality) tuple, extract embeddings on the
-COSMOS-Web sample and run a 5-fold linear probe against every physical
-label in CATALOG_COLUMNS, plus a derived `g-r` colour. Output is one
-small parquet per tuple uploaded to a coordination dataset on Hugging
-Face. Workers atomically claim tuples via `running/<tag>.running`
-markers exactly as pu_solve.py does, so any number of workers on any
-number of clusters can divide the work without speaking to each other.
+For each (model, size, modality) tuple in MODEL_GRID × MODALITIES, this
+worker:
 
-Idempotent. Restart-safe. Stale claims (>1h) auto-released.
+  1. Extracts a (n_use, d) embedding matrix on the COSMOS-Web sample,
+     caching the .npy locally.
+  2. Optionally uploads the .npy to ``$PU_EMB_REPO`` so other clusters
+     (and downstream re-analysis) can avoid re-extracting.
+  3. Runs a linear probe against every physical label in CATALOG_COLUMNS
+     plus a derived ``g-r`` colour. The probe applies the published
+     preprocessing recipe (``z>0`` filter and ``[0,4]`` clip for
+     redshift; per-property 1–99 percent quantile clip; StandardScaler
+     fit on the train fold; 10 random 80/20 splits; mean ± std R²).
+  4. Builds a cosine kNN graph and a 2-D UMAP for the embedding.
+  5. Uploads ``probe.parquet``, ``neighbours.parquet``, ``umap.parquet``
+     to ``$PU_REGRESS_RESULTS_REPO`` under ``done/<tag>/`` in a single
+     ``upload_folder`` commit.
 
-Required environment:
-    HF_TOKEN                    no default; required
-    PU_REGRESS_RESULTS_REPO     no default; HF dataset id, e.g. <owner>/pu-regress-results
-    PU_REGRESS_OUT              no default; persistent local output dir
-    PU_REGRESS_LOCKS            no default; persistent local lock dir
+Workers atomically claim tuples via ``running/<tag>.running`` markers,
+so any number of workers across any number of clusters can divide the
+work with no other coordination. Idempotent and restart-safe; stale
+claims (>1 h) are auto-released.
 
-Optional environment:
+Required environment
+--------------------
+    HF_TOKEN                    HF token with write access to the repos below
+    PU_REGRESS_RESULTS_REPO     HF dataset id for results, e.g. <owner>/pu-regress-results
+    PU_REGRESS_OUT              persistent local output dir
+    PU_REGRESS_LOCKS            persistent local lock dir
+
+Optional environment
+--------------------
+    PU_EMB_REPO                 if set, also upload .npy embeddings here
     PU_REGRESS_DATASET          default Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2
     PU_REGRESS_DLCACHE          default /tmp/pu_regress_dl/
     PU_REGRESS_N_USE            default 45000
     PU_REGRESS_BATCH_SIZE       default 16
-    PU_REGRESS_CV_FOLDS         default 5
-    PU_REGRESS_PCA_COMPONENTS   default 0 (disabled)
-    PU_REGRESS_N_PERM           default 100; permutation reps for p-value
+    PU_REGRESS_N_RUNS           default 10; random 80/20 splits per probe
+    PU_REGRESS_TEST_SIZE        default 2000; held-out galaxies per split
     PU_REGRESS_KNN_K            default 10; k for the per-tuple kNN graph
     PU_REGRESS_STALE_S          default 3600 (1 h)
-    PU_REGRESS_TARGET           e.g. "hsc/dino_giant" — single-tuple mode
+    PU_REGRESS_TARGET           e.g. "hsc/vit_base" — single-tuple mode
 """
 from __future__ import annotations
 
@@ -48,7 +62,6 @@ from huggingface_hub import HfApi
 from huggingface_hub.utils import EntryNotFoundError, HfHubHTTPError
 from torch.utils.data import DataLoader
 
-from pu.metrics.physics import linear_probe
 from pu.models import get_adapter
 from pu.pu_datasets.cosmosweb import CATALOG_COLUMNS
 
@@ -64,10 +77,10 @@ DATASET    = os.environ.get("PU_REGRESS_DATASET",
 DLCACHE    = Path(os.environ.get("PU_REGRESS_DLCACHE", "/tmp/pu_regress_dl"))
 N_USE      = int(os.environ.get("PU_REGRESS_N_USE", "45000"))
 BATCH_SIZE = int(os.environ.get("PU_REGRESS_BATCH_SIZE", "16"))
-CV_FOLDS   = int(os.environ.get("PU_REGRESS_CV_FOLDS", "5"))
-PCA_K      = int(os.environ.get("PU_REGRESS_PCA_COMPONENTS", "0")) or None
-N_PERM     = int(os.environ.get("PU_REGRESS_N_PERM", "100"))
+N_RUNS     = int(os.environ.get("PU_REGRESS_N_RUNS", "10"))
+TEST_SIZE  = int(os.environ.get("PU_REGRESS_TEST_SIZE", "2000"))
 KNN_K      = int(os.environ.get("PU_REGRESS_KNN_K", "10"))
+EMB_REPO   = os.environ.get("PU_EMB_REPO", "")  # optional; if set, .npy is uploaded here
 STALE_S    = int(os.environ.get("PU_REGRESS_STALE_S", "3600"))
 TARGET     = os.environ.get("PU_REGRESS_TARGET", "")  # single-tuple mode
 
@@ -393,30 +406,83 @@ def extract_embeddings(alias: str, size: str, hf_id: str,
 # ---------------------------------------------------------------------------
 # Per-tuple regression
 # ---------------------------------------------------------------------------
-def _probe_with_pvalue(Z: np.ndarray, y: np.ndarray
-                       ) -> tuple[float, float, float]:
-    """Returns (r2_mean, r2_std, p_value) where p is the one-sided
-    permutation-test p-value for H0: no linear relationship between Z and y.
-    Uses N_PERM shuffles of y, refits the same CV pipeline."""
-    res = linear_probe(Z, y, cv=CV_FOLDS, pca_components=PCA_K)
-    if isinstance(res, dict):
-        observed = float(res.get("mean", float("nan")))
-        std      = float(res.get("std",  float("nan")))
-    else:
-        observed, std = float(res), float("nan")
-    if N_PERM <= 0 or not np.isfinite(observed):
-        return observed, std, float("nan")
-    rng = np.random.default_rng(0)
-    null = []
-    for _ in range(N_PERM):
-        y_perm = rng.permutation(y)
-        rp = linear_probe(Z, y_perm, cv=CV_FOLDS, pca_components=PCA_K)
-        rp_mean = rp["mean"] if isinstance(rp, dict) else rp
-        null.append(float(rp_mean))
-    null_arr = np.asarray(null)
-    # Phipson-Smyth correction so p > 0 always.
-    p_value = (1 + int(np.sum(null_arr >= observed))) / (N_PERM + 1)
-    return observed, std, float(p_value)
+def _prep_property(name: str, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Apply the published per-property preprocessing.
+
+    Returns (mask, y_clipped). The mask selects catalog rows that survive
+    the property-specific filter (used to also subset embeddings). y_clipped
+    is then trimmed to its own 1–99% quantiles to suppress outliers that
+    would otherwise blow up unregularised OLS.
+    """
+    valid = np.isfinite(y)
+    if name == "redshift":
+        valid &= (y > 0)
+    if not valid.any():
+        return valid, y
+    y_v = y[valid].astype(np.float32, copy=True)
+    if name == "redshift":
+        y_v = np.clip(y_v, 0, 4)
+    lo, hi = np.quantile(y_v, [0.01, 0.99])
+    y_v = np.clip(y_v, lo, hi)
+    out = y.astype(np.float32, copy=True)
+    out[valid] = y_v
+    return valid, out
+
+
+def _probe_published(Z: np.ndarray, y: np.ndarray, mask: np.ndarray
+                     ) -> tuple[float, float]:
+    """Linear probe with the published recipe: StandardScaler embeddings on
+    each train fold, fit OLS, score on test fold. Repeats N_RUNS random
+    80/20 splits and returns (mean R², std R²).
+
+    Implementation: torch.linalg.lstsq on GPU when CUDA is available, falls
+    back to sklearn LinearRegression on CPU otherwise.
+    """
+    Zv = Z[mask].astype(np.float32, copy=False)
+    yv = y[mask].astype(np.float32, copy=False)
+    if len(Zv) < TEST_SIZE + 100:
+        return float("nan"), float("nan")
+
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda" if use_cuda else "cpu")
+
+    scores = []
+    for seed in range(N_RUNS):
+        rng = np.random.default_rng(seed)
+        order = rng.permutation(len(Zv))
+        test_idx, train_idx = order[:TEST_SIZE], order[TEST_SIZE:]
+        Xtr_np = Zv[train_idx]; ytr_np = yv[train_idx]
+        Xte_np = Zv[test_idx];  yte_np = yv[test_idx]
+
+        mu = Xtr_np.mean(axis=0)
+        sd = Xtr_np.std(axis=0)
+        sd = np.where(sd < 1e-12, 1.0, sd)
+        Xtr_np = (Xtr_np - mu) / sd
+        Xte_np = (Xte_np - mu) / sd
+
+        if use_cuda:
+            Xtr = torch.from_numpy(Xtr_np).to(device)
+            Xte = torch.from_numpy(Xte_np).to(device)
+            ytr = torch.from_numpy(ytr_np).to(device)
+            yte = torch.from_numpy(yte_np).to(device)
+            ones_tr = torch.ones(Xtr.shape[0], 1, device=device)
+            ones_te = torch.ones(Xte.shape[0], 1, device=device)
+            Xtr_b = torch.cat([Xtr, ones_tr], dim=1)
+            Xte_b = torch.cat([Xte, ones_te], dim=1)
+            sol = torch.linalg.lstsq(Xtr_b, ytr.unsqueeze(1)).solution.squeeze(1)
+            pred = Xte_b @ sol
+            ss_res = float(torch.sum((yte - pred) ** 2))
+            ss_tot = float(torch.sum((yte - yte.mean()) ** 2))
+            r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+        else:
+            from sklearn.linear_model import LinearRegression
+            from sklearn.metrics import r2_score
+            m = LinearRegression()
+            m.fit(Xtr_np, ytr_np)
+            r2 = r2_score(yte_np, m.predict(Xte_np))
+        scores.append(float(r2))
+
+    return float(np.mean(scores)), float(np.std(scores))
 
 
 def _build_knn(Z: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
@@ -494,15 +560,16 @@ def regress_tuple(alias: str, size: str, hf_id: str, params_M: int,
         })
 
     rows = []
-    for prop, y in catalog.items():
-        n = min(len(Z), len(y))
+    for prop, y_raw in catalog.items():
+        n = min(len(Z), len(y_raw))
+        mask, y = _prep_property(prop, y_raw[:n])
         try:
-            r2_mean, r2_std, p_val = _probe_with_pvalue(Z[:n], y[:n])
+            r2_mean, r2_std = _probe_published(Z[:n], y, mask)
         except Exception as e:
             log(f"    {prop}: probe failed: {type(e).__name__}: {e}")
-            r2_mean, r2_std, p_val = float("nan"), float("nan"), float("nan")
+            r2_mean, r2_std = float("nan"), float("nan")
         log(f"    R²({prop}) = {r2_mean:.4f} ± {r2_std:.4f}  "
-            f"p={p_val:.4f}")
+            f"(n_valid={int(mask.sum())})")
         rows.append({
             "modality": modality,
             "model_alias": alias,
@@ -512,12 +579,11 @@ def regress_tuple(alias: str, size: str, hf_id: str, params_M: int,
             "property": prop,
             "r2_mean": r2_mean,
             "r2_std":  r2_std,
-            "r2_pvalue": p_val,
+            "n_valid": int(mask.sum()),
             "n": int(n),
             "d": int(Z.shape[1]),
-            "cv_folds": CV_FOLDS,
-            "pca_k": PCA_K or 0,
-            "n_perm": N_PERM,
+            "n_runs": N_RUNS,
+            "test_size": TEST_SIZE,
         })
     return pl.DataFrame(rows), nn_df, umap_df
 
@@ -602,6 +668,25 @@ def main() -> int:
                 shutil.rmtree(staging, ignore_errors=True)
             log(f"[done] {tag} -> done/{tag}/"
                 f"{{probe,neighbours{'' if umap_df is None else ',umap'}}}.parquet")
+
+            # Optional: ship the cached .npy to the embeddings repo so
+            # later analyses (e.g. re-probing with a different recipe)
+            # don't need a GPU. Each .npy is ~250–600 MB.
+            if EMB_REPO:
+                emb_npy = DLCACHE / f"emb_{modality}_{alias}_{size}_{N_USE}.npy"
+                if emb_npy.exists():
+                    try:
+                        api.upload_file(
+                            path_or_fileobj=str(emb_npy),
+                            path_in_repo=emb_npy.name,
+                            repo_id=EMB_REPO,
+                            repo_type="dataset",
+                            commit_message=f"emb {tag}",
+                        )
+                        log(f"[emb] {emb_npy.name} -> {EMB_REPO}")
+                    except Exception as e:
+                        log(f"[emb] upload failed for {emb_npy.name}: "
+                            f"{type(e).__name__}: {e}")
         except KeyboardInterrupt:
             release_claim(tag)
             raise

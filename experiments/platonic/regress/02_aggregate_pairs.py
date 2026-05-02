@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pairwise MKNN + Wasserstein on the per-tuple kNN graphs uploaded by
-pu_regress.py.
+01_extract_and_probe.py.
 
 Two pair families are computed (matching Ashod's pipeline):
 
@@ -24,7 +24,7 @@ For each pair we compute:
 Output: one summary parquet with one row per (pair_kind, group, ...) entry.
 
 Usage:
-    python pu_regress_pairs.py \\
+    python 02_aggregate_pairs.py \\
         --pull-from <owner>/pu-regress-results \\
         --out-dir   /path/to/derived
         [--upload-to <owner>/pu-regress-results]   # writes summary.pairs.parquet under done/
