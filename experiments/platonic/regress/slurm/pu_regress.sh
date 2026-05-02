@@ -54,4 +54,4 @@ export PU_REGRESS_BATCH_SIZE="${PU_REGRESS_BATCH_SIZE:-16}"
 trap 'rm -rf "$HF_HOME" "$PU_REGRESS_DLCACHE" 2>/dev/null || true' EXIT
 
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
-exec python pu_regress.py "$@"
+exec python 01_extract_and_probe.py "$@"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time bootstrap of the shared HF dataset used by pu_regress.py for
+"""One-time bootstrap of the shared HF dataset used by 01_extract_and_probe.py for
 cross-cluster coordination.
 
 Run once on any machine with HF_TOKEN set; creates a private dataset
@@ -39,7 +39,7 @@ def main() -> int:
     print()
     print("Next:")
     print(f"  export PU_REGRESS_RESULTS_REPO={repo_id}")
-    print("  python pu_regress.py")
+    print("  python 01_extract_and_probe.py")
     return 0
 
 
