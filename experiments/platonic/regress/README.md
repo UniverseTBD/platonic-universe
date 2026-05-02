@@ -15,6 +15,9 @@ experiments/platonic/regress/
 ├── 02_aggregate_pairs.py    step 2 — local aggregator:
 │                              pulls neighbour matrices, computes intramodal +
 │                              crossmodal MKNN and Wasserstein
+├── 03_plot_umap.py          step 3 — UMAP figure rendering (one PDF per
+│                              modality; pages = colour-by property,
+│                              grid = family × size)
 ├── aggregate.py             optional: pull all probe.parquet → one summary table
 ├── setup_hf.py              one-time bootstrap of the coordination dataset
 ├── slurm/                   SBATCH wrapper
@@ -115,6 +118,20 @@ python aggregate.py \
 ```
 
 JSON layout: `{ modality: { model_alias: { size: { property: { r2_mean } } } } }`.
+
+## Step 3 — UMAP figures
+
+```bash
+python 03_plot_umap.py \
+    --pull-from "$PU_REGRESS_RESULTS_REPO" \
+    --out-dir   ./derived
+```
+
+Output: `derived/umap_hsc.pdf` and `derived/umap_jwst.pdf`. Each PDF
+has six pages (one per physics property). Within a page, rows are
+model families and columns are sizes, colourised by the page's
+property. The same random subsample of galaxies is used for every
+panel so cross-panel comparisons are visually fair.
 
 ## Knobs
 
