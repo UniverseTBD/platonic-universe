@@ -202,6 +202,17 @@ def flux_to_pil(blob, mode, modes, resize=True, norm_mode="arcsinh", resize_mode
             chan = (stretched / s_high).clip(0, 1)
         return chan
 
+    # If the dataset already stores ready-to-use RGB PIL images (e.g.
+    # Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2), skip the flux→arcsinh
+    # pipeline and return the image directly. Optional resize keeps the
+    # downstream model preprocessor happy.
+    from PIL.Image import Image as _PILImage
+    if isinstance(blob, _PILImage):
+        if resize and resize_mode != "fill":
+            target = (224, 224)
+            if blob.size != target:
+                blob = blob.resize(target)
+        return blob.convert("RGB")
     arr = np.asarray(blob["flux"], np.float32)
     if mode == "hsc": #160x160 pixels in MMU dataset
         if arr.ndim == 3:

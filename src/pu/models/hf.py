@@ -19,6 +19,25 @@ from pu.preprocess import PreprocessHF
 _CLIP_FAMILY = {"clip"}
 
 
+def _pick_attn_impl() -> str:
+    """Choose the best available attention kernel.
+
+    Order: flash_attention_2 (if the `flash_attn` package imports cleanly) →
+    sdpa (PyTorch's auto-selecting attention; uses Flash kernels when
+    conditions allow) → eager (math, slowest fallback). Override with the
+    ``PU_ATTN_IMPL`` env var if you want to pin one explicitly.
+    """
+    import os
+    forced = os.environ.get("PU_ATTN_IMPL", "").strip()
+    if forced:
+        return forced
+    try:
+        import flash_attn  # noqa: F401
+        return "flash_attention_2"
+    except Exception:
+        return "sdpa"
+
+
 def _clip_image_features(model, pixel_values: torch.Tensor) -> torch.Tensor:
     """Run ``model.get_image_features`` and return the projected feature tensor.
 
@@ -66,12 +85,38 @@ class HFAdapter(ModelAdapter):
         elif self.alias == "clip":
             self.processor = CLIPProcessor.from_pretrained(self.model_name)
         else:
-            self.processor = AutoImageProcessor.from_pretrained(self.model_name)
+            # Prefer the fast (Rust/torchvision) image processor when HF has
+            # one for this architecture; falls through to the slow processor
+            # automatically if not.
+            try:
+                self.processor = AutoImageProcessor.from_pretrained(
+                    self.model_name, use_fast=True)
+            except (TypeError, ValueError):
+                self.processor = AutoImageProcessor.from_pretrained(self.model_name)
 
-        if self.alias == "clip":
-            self.model = CLIPModel.from_pretrained(self.model_name).to("cuda").eval()
-        else:
-            self.model = AutoModel.from_pretrained(self.model_name).to("cuda").eval()
+        # Use bf16 + flash-attention-friendly kernel where possible. Fall back
+        # to sdpa (PyTorch's auto-selecting attention kernel) and finally eager
+        # if neither works. Also covers HF families that don't support FA2 yet.
+        attn_impl = _pick_attn_impl()
+        load_kwargs = dict(torch_dtype=torch.bfloat16,
+                           attn_implementation=attn_impl)
+        try:
+            if self.alias == "clip":
+                self.model = CLIPModel.from_pretrained(
+                    self.model_name, **load_kwargs).to("cuda").eval()
+            else:
+                self.model = AutoModel.from_pretrained(
+                    self.model_name, **load_kwargs).to("cuda").eval()
+        except (ValueError, TypeError) as e:
+            # Some models reject attn_implementation outright; retry without it.
+            print(f"  [adapter] attn_impl={attn_impl} rejected ({e}); retrying eager")
+            load_kwargs.pop("attn_implementation", None)
+            if self.alias == "clip":
+                self.model = CLIPModel.from_pretrained(
+                    self.model_name, **load_kwargs).to("cuda").eval()
+            else:
+                self.model = AutoModel.from_pretrained(
+                    self.model_name, **load_kwargs).to("cuda").eval()
 
         # Apply torch.compile for optimized inference
         if compile_model:
@@ -222,13 +267,26 @@ class VLMAdapter(HFAdapter):
     }
 
     def load(self, compile_model: bool = False) -> None:
-        self.processor = AutoProcessor.from_pretrained(self.model_name)
-        self.model = AutoModelForImageTextToText.from_pretrained(
-            self.model_name,
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                self.model_name, use_fast=True)
+        except (TypeError, ValueError):
+            self.processor = AutoProcessor.from_pretrained(self.model_name)
+        attn_impl = _pick_attn_impl()
+        load_kwargs = dict(
             torch_dtype=torch.bfloat16,
             device_map="auto",
             low_cpu_mem_usage=True,
-        ).eval()
+            attn_implementation=attn_impl,
+        )
+        try:
+            self.model = AutoModelForImageTextToText.from_pretrained(
+                self.model_name, **load_kwargs).eval()
+        except (ValueError, TypeError) as e:
+            print(f"  [adapter] attn_impl={attn_impl} rejected ({e}); retrying eager")
+            load_kwargs.pop("attn_implementation", None)
+            self.model = AutoModelForImageTextToText.from_pretrained(
+                self.model_name, **load_kwargs).eval()
         if compile_model:
             self.model = torch.compile(
                 self.model, mode="reduce-overhead", fullgraph=False

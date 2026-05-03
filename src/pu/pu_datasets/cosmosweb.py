@@ -26,13 +26,20 @@ class CosmosWebAdapter(DatasetAdapter):
         return None
 
     def prepare(self, processor: Callable, modes: Iterable[str], filterfun: Callable):
-        image_cols = [f"{mode}_images" for mode in modes]
+        # Cosmosweb stores per-band images under the plural keys
+        # `<mode>_images`, but the rest of the pipeline (notably
+        # `pu.preprocess.PreprocessTransform`) reads the singular
+        # `<mode>_image`. Rename on the way in so downstream code is
+        # survey-agnostic.
+        plural_cols = [f"{mode}_images" for mode in list(modes)]
+        rename_map = {f"{mode}_images": f"{mode}_image" for mode in list(modes)}
         ds = (
             load_dataset(self.hf_ds, split="train", streaming=True)
-            .select_columns(image_cols)
+            .select_columns(plural_cols)
+            .rename_columns(rename_map)
             .filter(filterfun)
             .map(processor)
-            .remove_columns(image_cols)
+            .remove_columns(list(rename_map.values()))
         )
         if hasattr(ds, "with_format"):
             ds = ds.with_format("torch")
