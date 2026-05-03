@@ -506,15 +506,34 @@ def calibrate_pair_gpu(Z1: np.ndarray, Z2: np.ndarray, k: int,
     cka_obs = ((M * M).sum() / denom).item()
     del M
 
-    # Permutation null: per perm, one matmul.
+    # Permutation null: batch of K perms per matmul. Memory peak per chunk
+    # is K * N * d2 * 4 bytes for the permuted Z2c view; tune via
+    # PU_SOLVE_PERM_CHUNK if you hit OOM. Same total FLOPs as the per-perm
+    # loop but amortises kernel launch + Python overhead by ~K×.
+    perm_chunk = max(1, int(os.environ.get("PU_SOLVE_PERM_CHUNK", "16")))
     cka_nulls = torch.empty(n_perm, device=device)
-    for i in range(n_perm):
-        perm = torch.randperm(n, generator=g_cka, device=device)
-        Mp = Z1c.T @ Z2c[perm]                           # (d1, d2)
-        cka_nulls[i] = (Mp * Mp).sum() / denom
-        del Mp
+    Z1c_T = Z1c.T.contiguous()                           # (d1, N)
+    for chunk_start in range(0, n_perm, perm_chunk):
+        K = min(perm_chunk, n_perm - chunk_start)
+        # Stack K permutations: (K, N).
+        perm_batch = torch.stack([
+            torch.randperm(n, generator=g_cka, device=device)
+            for _ in range(K)
+        ])
+        # Gather Z2c rows according to each perm: (K, N, d2).
+        Z2c_perms = Z2c[perm_batch]
+        # Batched matmul: broadcast Z1c_T to (K, d1, N), bmm → (K, d1, d2).
+        Mp_batch = torch.bmm(
+            Z1c_T.unsqueeze(0).expand(K, -1, -1).contiguous(),
+            Z2c_perms,
+        )
+        # Frobenius² per perm.
+        cka_nulls[chunk_start:chunk_start + K] = (
+            (Mp_batch * Mp_batch).sum(dim=(1, 2)) / denom
+        )
+        del perm_batch, Z2c_perms, Mp_batch
     cka_nulls_np = cka_nulls.cpu().numpy()
-    del Z1c, Z2c, cka_nulls
+    del Z1c, Z2c, Z1c_T, cka_nulls
 
     # ===== MKNN — sparse kNN, no membership matrix =====
     Z1n = Z1t / (Z1t.norm(dim=1, keepdim=True) + 1e-30)
