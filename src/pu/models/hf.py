@@ -155,6 +155,13 @@ class HFAdapter(ModelAdapter):
         # batch is a dict produced by the DataLoader; HF preprocess stores tensors under f"{mode}"
         inputs = batch[f"{mode}"].to("cuda")
         inputs = self._maybe_expand_video_frames(inputs)
+        # Match model dtype (see embed_all_layers_for_mode for the same fix).
+        try:
+            model_dtype = next(self.model.parameters()).dtype
+            if inputs.dtype != model_dtype and inputs.is_floating_point():
+                inputs = inputs.to(dtype=model_dtype)
+        except StopIteration:
+            pass
         with torch.no_grad():
             # Use AMP if enabled for faster inference with lower memory
             with torch.amp.autocast("cuda", enabled=self._use_amp, dtype=torch.float16):
@@ -214,6 +221,16 @@ class HFAdapter(ModelAdapter):
         inputs = batch[f"{mode}"].to("cuda")
         inputs = self._maybe_expand_video_frames(inputs)
         hookable = self._get_hookable_model()
+        # Cast pixel_values to the model's parameter dtype. ConvNeXt, ViT-MAE,
+        # AstroPT, and a few other architectures don't auto-cast and crash with
+        # "Input type (float) and bias type (BFloat16) should be the same"
+        # when the model is bf16 but inputs come from the dataloader as fp32.
+        try:
+            model_dtype = next(hookable.parameters()).dtype
+            if inputs.dtype != model_dtype and inputs.is_floating_point():
+                inputs = inputs.to(dtype=model_dtype)
+        except StopIteration:
+            pass
         model_output = {}
 
         def forward_fn():
