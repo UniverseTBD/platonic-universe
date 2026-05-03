@@ -58,7 +58,13 @@ import polars as pl
 import pyarrow.parquet as pq
 
 HF_REPO = os.environ.get("PU_SOLVE_EMBED_REPO", "")  # set to e.g. "<owner>/platonic-embeddings"
-SURVEYS = ("desi", "jwst", "legacysurvey", "sdss")
+# Survey set is env-overridable so this same script works on additional
+# cuts (e.g. cosmosweb) without a code change. Default keeps the original
+# Smith42 survey set.
+SURVEYS = tuple(s.strip() for s in os.environ.get(
+    "PU_SOLVE_SURVEYS",
+    "desi,jwst,legacysurvey,sdss",
+).split(",") if s.strip())
 
 # Paths — override via env if you want them somewhere else.
 ROOT = Path(os.environ.get("PU_SOLVE_ROOT", str(Path.home() / "pu_runs")))
