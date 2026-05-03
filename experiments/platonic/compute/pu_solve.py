@@ -374,9 +374,14 @@ def list_blocks(local_path: str, survey: str) -> tuple[list[str], list[str], lis
             log(f"    - {name}  ({reason})")
         if len(skipped) > 6:
             log(f"    ... and {len(skipped) - 6} more")
+    # Some surveys are "paired" cuts where the second side is a band
+    # different from the survey alias (e.g. cosmosweb stores HSC + JWST,
+    # so the second side is _jwst). Override here.
+    SURVEY_SIDE_SUFFIX = {"cosmosweb": "jwst"}
+    side_suffix = SURVEY_SIDE_SUFFIX.get(survey, survey)
     hsc = [n for n in accepted if n.endswith("_hsc")]
-    side = [n for n in accepted if n.endswith(f"_{survey}")]
-    paired = [n for n in accepted if n == f"{survey}_embedding"]
+    side = [n for n in accepted if n.endswith(f"_{side_suffix}")]
+    paired = [n for n in accepted if n == f"{side_suffix}_embedding"]
     return hsc, side, paired
 
 
