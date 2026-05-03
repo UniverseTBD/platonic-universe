@@ -149,7 +149,14 @@ class PreprocessAstropt:
             if (mode == "desi") or (mode == "sdss"):
                 continue
             else:
-                im = self.f2p(idx[f"{mode}_image"], mode, self.modes).swapaxes(0, 2)
+                im = self.f2p(idx[f"{mode}_image"], mode, self.modes)
+                # f2p returns PIL.Image for datasets that ship pre-rendered
+                # imagery (e.g. cosmosweb); coerce to ndarray so the
+                # array-shaped pipeline below works uniformly.
+                from PIL.Image import Image as _PILImage
+                if isinstance(im, _PILImage):
+                    im = np.asarray(im, dtype=np.float32)
+                im = im.swapaxes(0, 2)
                 im = self.galproc.process_galaxy(
                     torch.from_numpy(im).to(torch.float)
                 ).to(torch.float)
