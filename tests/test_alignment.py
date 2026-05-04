@@ -45,7 +45,7 @@ def _stream_dataset(mode, adapter, modes, n_samples):
     """Stream n_samples from a dataset, return the HF IterableDataset."""
     from pu.pu_datasets import get_dataset_adapter
 
-    hf_ds = f"Smith42/{mode}_hsc_crossmatched"
+    hf_ds = f"<anon>/{mode}_hsc_crossmatched"
     processor = adapter.get_preprocessor(modes)
 
     def filterfun(idx):
