@@ -128,7 +128,7 @@ def resize_galaxy_to_fit(img, padding_ratio=0.1, target_size=96, force_extent=No
 
 # Example usage
 if __name__ == "__main__":
-    ds = iter(load_dataset("smith42/galaxies", split="train", streaming=True))
+    ds = iter(load_dataset("<anon>/galaxies", split="train", streaming=True))
     for ii in range(10):
         img = np.array(next(ds)["image"])[:, :, 0]
 

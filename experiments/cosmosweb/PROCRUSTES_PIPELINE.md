@@ -14,16 +14,16 @@ extraction is required.
 ## What the pipeline does
 
 ```
-UniverseTBD/pu-embeddings/cosmosweb/*.parquet   ← upstream, on HF
+<anon>/pu-embeddings/cosmosweb/*.parquet   ← upstream, on HF
        │
        │  (1) stream_embeddings_to_npy.py
        ▼
 analysis/procrustes_pipeline/embeddings/*.npy   ← local
        │
-       │  (2) probe_weight_analysis.py (Ashod's, env-driven)
+       │  (2) probe_weight_analysis.py (the existing, env-driven)
        ▼
 analysis/procrustes_pipeline/
-  ├── procrustes_distances_45000galaxies.pkl    ← input to Mike's plotters
+  ├── procrustes_distances_45000galaxies.pkl    ← input to the plotters
   ├── avg_cosine_similarity_45000galaxies.pdf   ← paper Fig 4
   ├── probe_weight_analysis_45000galaxies_*.pdf
   └── probe_weight_cache_45000/                 ← per-model probe weights
@@ -43,10 +43,10 @@ analysis/procrustes_pipeline/
 ## Quick start (full basket, ~30 GB transient bandwidth, ~30 GB peak disk)
 
 ```
-git worktree add /tmp/pu_mike origin/crossmodalintramodal
-RPP_PLOT_WORKTREE=/tmp/pu_mike \
+git worktree add /tmp/pu_plotter origin/<plotting-branch>
+RPP_PLOT_WORKTREE=/tmp/pu_plotter \
   python experiments/cosmosweb/run_procrustes_pipeline.py
-cd /tmp/pu_mike
+cd /tmp/pu_plotter
 python scripts/plot_crossarchitectural_procrustes.py
 python scripts/plot_crossmodal_procrustes.py
 python scripts/plot_crossmodal_procrustes_per_property.py
@@ -58,7 +58,7 @@ ls figs/*procrustes*.pdf
 ```
 STREAM_SUBSET="dinov3:vits16,dinov3:vitb16,convnext:nano,convnext:tiny,astropt:015M,astropt:095M" \
   python experiments/cosmosweb/stream_embeddings_to_npy.py
-PWA_DATASET=Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2 \
+PWA_DATASET=<anon>/cosmosweb-hsc-jwst-high-snr-pil2 \
 PWA_OUT_DIR=analysis/probe_smoke \
 PWA_EMB_DIR=analysis/probe_smoke/embeddings \
 PWA_UPSAMPLE_SUFFIX="" \
@@ -81,7 +81,7 @@ basket — e.g. for smoke tests or for a per-family debugging run.
 
 `probe_weight_analysis.py` consumes per-`(telescope, alias, size)` .npy
 embedding files. The actual embeddings live on HF as parquet shards under
-`UniverseTBD/pu-embeddings/cosmosweb/`. Previously the parquet → .npy
+`<anon>/pu-embeddings/cosmosweb/`. Previously the parquet → .npy
 conversion + the script execution were undocumented manual steps on
 contributors' personal machines, which is why the Procrustes pkl was not
 reproducible by anyone else. This pipeline removes that dependency on a
@@ -99,6 +99,6 @@ print(list(d.keys()))
 ```
 
 Expected top-level keys include `cross_modal_hsc_vs_jwst`, plus per-(model,
-property) entries. Mike's `plot_crossmodal_procrustes.py` reads
+property) entries. the `plot_crossmodal_procrustes.py` reads
 `cross_modal_hsc_vs_jwst[<property>]` as a list of
 `(family, raw_size, params, distance)` tuples.

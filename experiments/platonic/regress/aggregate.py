@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pull every done/*.parquet from the regression coordination dataset
 and concatenate into a single parquet (and optionally a JSON in the
-schema consumed by Smith42's plotting branch).
+schema consumed by the upstream plotting branch).
 
 Usage:
     python aggregate.py \\
@@ -68,7 +68,7 @@ def main() -> int:
     print(f"wrote {out_pq}")
 
     if args.json_out:
-        # Smith42-compatible nested layout:
+        # <anon>-compatible nested layout:
         # { modality: { model_alias: { size: { property: { r2_mean, r2_std } } } } }
         nested: dict = {}
         for row in df.iter_rows(named=True):

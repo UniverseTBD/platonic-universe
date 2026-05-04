@@ -5,7 +5,7 @@ from datasets import load_dataset
 from pu.pu_datasets.base import DatasetAdapter
 from pu.pu_datasets.registry import register_dataset
 
-# Maps physics parameter name → dataset column name for Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2.
+# Maps physics parameter name → dataset column name for <anon>/cosmosweb-hsc-jwst-high-snr-pil2.
 CATALOG_COLUMNS = {
     "redshift": "lephare_photozs",
     "mag_g":    "mag_model_hsc-g",
@@ -16,7 +16,7 @@ CATALOG_COLUMNS = {
 
 
 class CosmosWebAdapter(DatasetAdapter):
-    """Adapter for Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2.
+    """Adapter for <anon>/cosmosweb-hsc-jwst-high-snr-pil2.
 
     comp_mode selects the telescope band: "hsc" or "jwst".
     Image column convention: {comp_mode}_images.

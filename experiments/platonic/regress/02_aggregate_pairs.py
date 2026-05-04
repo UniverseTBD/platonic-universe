@@ -2,7 +2,7 @@
 """Pairwise MKNN + Wasserstein on the per-tuple kNN graphs uploaded by
 01_extract_and_probe.py.
 
-Two pair families are computed (matching Ashod's pipeline):
+Two pair families are computed (matching the existing pipeline):
 
   Intramodal — adjacent model sizes within the same family on the same
                modality. Tests whether scaling preserves representation
@@ -130,7 +130,7 @@ def reconstruct_catalog_from_probes(done_dir: Path) -> dict[str, np.ndarray] | N
     from pu.pu_datasets.cosmosweb import CATALOG_COLUMNS
     DATASET = os.environ.get(
         "PU_REGRESS_DATASET",
-        "Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2",
+        "<anon>/cosmosweb-hsc-jwst-high-snr-pil2",
     )
     print(f"reconstructing catalog (N={n}) from {DATASET}")
     ds = load_dataset(DATASET, split="train", streaming=True)
