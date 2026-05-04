@@ -29,12 +29,13 @@ from tqdm import tqdm
 from pu.pu_datasets.cosmosweb import CATALOG_COLUMNS
 
 # ── Config ──────────────────────────────────────────────────────────────────────
-DATASET         = ""
-OUT_DIR         = ""
-EMB_DIR         = f"{OUT_DIR}/embeddings"
+# Env vars override hardcoded defaults — used by run_procrustes_pipeline.py.
+DATASET         = os.environ.get("PWA_DATASET", "")
+OUT_DIR         = os.environ.get("PWA_OUT_DIR", "")
+EMB_DIR         = os.environ.get("PWA_EMB_DIR", f"{OUT_DIR}/embeddings")
 DS_TAG          = DATASET.split("/")[-1]
-N_USE           = 45000
-UPSAMPLE_SUFFIX = "_upsampled"
+N_USE           = int(os.environ.get("PWA_N_USE", "45000"))
+UPSAMPLE_SUFFIX = os.environ.get("PWA_UPSAMPLE_SUFFIX", "_upsampled")
 PROBE_TEST_SIZE = 5000
 SEED            = 42
 TELESCOPES      = ["hsc", "jwst"]
