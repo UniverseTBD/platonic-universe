@@ -37,7 +37,7 @@ Both scripts write PDFs of figures and `.npy` cached embeddings to `embeddings/`
 ## Dataset
 
 The scripts pull from
-[`Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2`](https://huggingface.co/datasets/Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2)
+[`<anon>/cosmosweb-hsc-jwst-high-snr-pil2`](https://huggingface.co/datasets/<anon>/cosmosweb-hsc-jwst-high-snr-pil2)
 (set `HF_TOKEN` if private). The dataset adapter
 (`pu.pu_datasets.cosmosweb`) and the physics-probing utilities
 (`pu.metrics.physics`, `pu.metrics.neighbors.mknn_neighbor_input`) are part of
@@ -45,7 +45,7 @@ the main `pu` package and are re-used by these scripts.
 
 ## Notes
 
-- These scripts were originally contributed in PR #58 by @ashodkh. They have
+- These scripts were originally contributed in PR #58 by . They have
   been moved here, unchanged, so the main package stays small. The shared
   utilities they rely on were merged into core.
 - Run on a GPU. CPU runs will be very slow.
