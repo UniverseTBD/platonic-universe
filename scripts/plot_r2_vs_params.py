@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
-"""Plot R² (linear probe on galaxy physics) vs model parameter count."""
+"""
+Plot model parameter count against mean physics R² in the same style
+as scripts/plot_crossmodal.py.
 
+R² is the mean across (redshift, mass, sSFR) from
+``r2_vs_params_45000galaxies_upsampled.json``. One panel per modality
+(HSC / JWST). One point per (family, size).
+"""
+
+import argparse
 import json
 from pathlib import Path
 
@@ -8,15 +16,36 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import pearsonr, spearmanr
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-FIGS_DIR = Path(__file__).resolve().parent.parent / "figs"
+ROOT = Path(__file__).resolve().parent.parent
+FIGS_DIR = ROOT / "figs"
 
-# Parameter counts from HuggingFace Hub model_info().safetensors.total
-# For models with text+vision (CLIP), we use *vision encoder only* counts.
-# For VLMs (PaliGemma, LLaVA), we use total model params since the vision
-# backbone is shared across sizes and would collapse to single points.
-# For AstroPT, sizes are in the name (15M, 95M, 850M).
+DEFAULT_R2_JSON = ROOT / "r2_vs_params_45000galaxies_upsampled.json"
+R2_PROPS = ("redshift", "mass", "sSFR")
+
+MODALITIES = ("hsc", "jwst")
+MODALITY_LABEL = {
+    "hsc": "HSC",
+    "jwst": "JWST",
+}
+
+FAMILY_STYLE = {
+    "vit":       {"label": "ViT",         "color": "#1f77b4", "marker": "o"},
+    "vit-mae":   {"label": "ViT-MAE",     "color": "#efcc00", "marker": "<"},
+    "clip":      {"label": "CLIP",        "color": "#ff7f0e", "marker": "s"},
+    "convnext":  {"label": "ConvNeXt",    "color": "#2ca02c", "marker": "^"},
+    "dinov3":    {"label": "DINOv3",      "color": "#d62728", "marker": "D"},
+    "vjepa":     {"label": "V-JEPA",      "color": "#8c564b", "marker": "P"},
+    "ijepa":     {"label": "I-JEPA",      "color": "#9467bd", "marker": "v"},
+    "astropt":   {"label": "AstroPT",     "color": "#e377c2", "marker": "*"},
+    "paligemma": {"label": "PaliGemma 2", "color": "#17becf", "marker": "h"},
+    "llava_15":  {"label": "LLaVA 1.5",   "color": "#7f7f7f", "marker": "X"},
+}
+
+# Parameter counts (HuggingFace model_info().safetensors.total). For CLIP
+# we use the vision-encoder count; for VLMs the full model since the
+# vision backbone is shared across sizes.
 PARAM_COUNTS = {
     "vit": {
         "base": 86_389_248,
@@ -29,7 +58,6 @@ PARAM_COUNTS = {
         "huge": 632_404_480,
     },
     "clip": {
-        # Vision encoder only (ViT-B/16 and ViT-L/14)
         "base": 86_192_640,
         "large": 303_971_328,
     },
@@ -57,9 +85,9 @@ PARAM_COUNTS = {
         "giant": 1_034_555_264,
     },
     "astropt": {
-        "015M": 15_000_000,
-        "095M": 95_000_000,
-        "850M": 850_000_000,
+        "15m": 15_000_000,
+        "95m": 95_000_000,
+        "850m": 850_000_000,
     },
     "paligemma": {
         "3b": 3_032_081_408,
@@ -72,180 +100,170 @@ PARAM_COUNTS = {
     },
 }
 
-# Display names and colors for each family
-FAMILY_STYLE = {
-    "vit":      {"label": "ViT",      "color": "#1f77b4", "marker": "o"},
-    "vit-mae":  {"label": "ViT-MAE",  "color": "#efcc00", "marker": "<"},
-    "clip":     {"label": "CLIP",     "color": "#ff7f0e", "marker": "s"},
-    "convnext": {"label": "ConvNeXt", "color": "#2ca02c", "marker": "^"},
-    "dinov3":   {"label": "DINOv3",   "color": "#d62728", "marker": "D"},
-    "ijepa":    {"label": "I-JEPA",   "color": "#9467bd", "marker": "v"},
-    "vjepa":    {"label": "V-JEPA",   "color": "#8c564b", "marker": "P"},
-    "astropt":    {"label": "AstroPT",      "color": "#e377c2", "marker": "*"},
-    "paligemma": {"label": "PaliGemma 2",  "color": "#17becf", "marker": "h"},
-    "llava_15":  {"label": "LLaVA 1.5",    "color": "#7f7f7f", "marker": "X"},
-}
+
+def load_r2_json(path: Path) -> dict:
+    with open(path) as f:
+        return json.load(f)
 
 
-PROPERTY_LABELS = {
-    "smooth_fraction": "Smooth Fraction",
-    "disk_fraction": "Disk Fraction",
-    "artifact": "Artifact",
-    "edge_on": "Edge-on",
-    "tight_spiral": "Tight Spiral",
-    "mag_r_desi": "Mag r (DESI)",
-    "mag_g_desi": "Mag g (DESI)",
-    "photo_z": "Photo-z",
-    "spec_z": "Spec-z",
-    "stellar_mass": "Stellar Mass",
-    "sfr": "SFR",
-}
+def r2_for_model(r2: dict, modality: str, family: str, size: str) -> float:
+    try:
+        entry = r2[modality][family][size]
+    except KeyError as e:
+        raise KeyError(
+            f"{family}/{size} missing under modality {modality!r} in R² JSON"
+        ) from e
+    vals = []
+    for prop in R2_PROPS:
+        if prop not in entry:
+            raise KeyError(
+                f"{family}/{size} missing property {prop!r} under {modality!r}"
+            )
+        vals.append(float(entry[prop]["r2_mean"]))
+    return float(np.mean(vals))
 
 
-def load_all_data():
-    """Load all physics test JSON files, return {family: data_dict}."""
-    all_data = {}
-    for family in PARAM_COUNTS:
-        data_file = DATA_DIR / f"physics_{family}_test.json"
-        if not data_file.exists():
-            print(f"Skipping {family}: {data_file} not found")
+def plot_scatter(
+    ax,
+    x: np.ndarray,
+    y: np.ndarray,
+    families: list[str],
+    sizes: list[str],
+    xlabel: str,
+    ylabel: str,
+) -> None:
+    for family in FAMILY_STYLE:
+        mask = np.array([f == family for f in families])
+        if not mask.any():
             continue
-        with open(data_file) as f:
-            all_data[family] = json.load(f)
-    return all_data
-
-
-EXCLUDE_PROPERTIES = {"tight_spiral", "sfr"}
-
-
-def _recompute_mean_r2(size_data):
-    """Recompute mean R² and SE excluding EXCLUDE_PROPERTIES."""
-    r2_vals = []
-    for prop, v in size_data["r2_per_property"].items():
-        if prop in EXCLUDE_PROPERTIES:
-            continue
-        r2_vals.append(v)
-    r2_arr = np.array(r2_vals)
-    return r2_arr.mean(), r2_arr.std(ddof=1) / np.sqrt(len(r2_arr))
-
-
-def plot_mean(all_data):
-    """Plot mean R² vs model size, excluding unstable properties."""
-    fig, ax = plt.subplots(figsize=(8, 5))
-
-    for family, params_by_size in PARAM_COUNTS.items():
-        if family not in all_data:
-            continue
-        sizes_data = all_data[family]["sizes"]
-        xs, ys, yerrs = [], [], []
-        for size, n_params in params_by_size.items():
-            if size not in sizes_data:
-                continue
-            mean, se = _recompute_mean_r2(sizes_data[size])
-            xs.append(n_params)
-            ys.append(mean)
-            yerrs.append(se)
-
         style = FAMILY_STYLE[family]
-        ax.errorbar(
-            xs, ys, yerr=yerrs,
-            label=style["label"],
-            color=style["color"],
-            marker=style["marker"],
-            markersize=7,
-            linewidth=1.5,
-            capsize=3,
+        ax.scatter(
+            x[mask], y[mask],
+            color=style["color"], marker=style["marker"],
+            s=30, label=style["label"], edgecolors="black", linewidths=0.4,
         )
 
-    ax.set_xscale("log")
-    ax.set_xlabel("Parameters", fontsize=12)
-    ax.set_ylabel("Mean $R^2$ (linear probe)", fontsize=12)
-    n_used = len(PROPERTY_LABELS) - len(EXCLUDE_PROPERTIES)
-    excluded = ", ".join(sorted(EXCLUDE_PROPERTIES))
-    ax.set_title(
-        f"Galaxy Physics $R^2$ vs Model Size ({n_used} properties, excl. {excluded})",
-        fontsize=11,
-    )
-    ax.legend(fontsize=10, loc="lower right")
-    ax.grid(True, alpha=0.3)
-
-    fig.tight_layout()
-    out = FIGS_DIR / "r2_vs_model_size.pdf"
-    fig.savefig(out, dpi=150)
-    print(f"Saved to {out}")
-    plt.close(fig)
-
-
-def plot_per_property(all_data):
-    """Plot R² vs model size for each physical property in a grid."""
-    properties = list(PROPERTY_LABELS.keys())
-    n_props = len(properties)
-    ncols = 4
-    nrows = (n_props + ncols - 1) // ncols
-
-    fig, axes = plt.subplots(nrows, ncols, figsize=(16, nrows * 3.2))
-    axes = axes.flat
-
-    for i, prop in enumerate(properties):
-        ax = axes[i]
-
-        for family, params_by_size in PARAM_COUNTS.items():
-            if family not in all_data:
-                continue
-            sizes_data = all_data[family]["sizes"]
-            xs, ys, yerrs = [], [], []
-            for size, n_params in params_by_size.items():
-                if size not in sizes_data:
-                    continue
-                prop_data = sizes_data[size].get("properties", {}).get(prop, {})
-                r2 = prop_data.get("linear_probe_r2")
-                r2_std = prop_data.get("linear_probe_r2_std", 0)
-                if r2 is None:
-                    continue
-                xs.append(n_params)
-                ys.append(r2)
-                yerrs.append(r2_std)
-
-            style = FAMILY_STYLE[family]
-            ax.errorbar(
-                xs, ys, yerr=yerrs,
-                label=style["label"],
-                color=style["color"],
-                marker=style["marker"],
-                markersize=5,
-                linewidth=1.2,
-                capsize=2,
-            )
-
+    finite = np.isfinite(x) & np.isfinite(y)
+    if finite.sum() >= 3:
+        rho, p_rho = spearmanr(x[finite], y[finite])
+        ax.text(
+            0.95, -0.01,
+            f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
+            transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
+            bbox=None,
+        )
         ax.set_xscale("log")
-        ax.set_title(PROPERTY_LABELS[prop], fontsize=11)
-        ax.grid(True, alpha=0.3)
-        ax.set_ylabel("$R^2$", fontsize=9)
-        ax.set_xlabel("Parameters", fontsize=9)
-        ax.tick_params(labelsize=8)
 
-    # Hide unused subplots
-    for j in range(n_props, len(axes)):
-        axes[j].set_visible(False)
+        log_x = np.log10(x[finite])
+        m, b = np.polyfit(log_x, y[finite], 1)
+        xlim = ax.get_xlim()
+        xfit = np.linspace(xlim[0], xlim[1], 200)
+        ax.plot(xfit, m * np.log10(xfit) + b, color="gray", lw=2, ls="--", zorder=0)
+        ax.set_xlim(xlim)
 
-    # Single legend in the empty subplot space
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower right", fontsize=10,
-               bbox_to_anchor=(0.98, 0.02), ncol=2)
+    ax.set_xlabel(xlabel, fontsize=11)
+    ax.set_ylabel(ylabel, fontsize=11)
 
-    fig.suptitle("$R^2$ vs Model Size by Physical Property", fontsize=14, y=1.01)
+
+def make_figure(
+    r2: dict,
+    exclude_families: set[str],
+    modalities: tuple[str, ...],
+) -> None:
+    unknown = exclude_families - set(FAMILY_STYLE)
+    if unknown:
+        raise ValueError(
+            f"Unknown family names in --exclude-families: {sorted(unknown)}. "
+            f"Valid: {sorted(FAMILY_STYLE)}"
+        )
+
+    n_panels = len(modalities)
+    fig, axes = plt.subplots(
+        1, n_panels, figsize=(6, 2.5), sharey=False,
+    )
+    if n_panels == 1:
+        axes = [axes]
+
+    for ax, modality in zip(axes, modalities):
+        xs, ys, fams, szs = [], [], [], []
+        for family, sizes in PARAM_COUNTS.items():
+            if family in exclude_families:
+                continue
+            for size, n_params in sizes.items():
+                try:
+                    r2_val = r2_for_model(r2, modality, family, size)
+                except KeyError:
+                    continue
+                xs.append(float(n_params))
+                ys.append(r2_val)
+                fams.append(family)
+                szs.append(size)
+
+        is_first = ax is axes[0]
+
+        plot_scatter(
+            ax,
+            np.array(xs), np.array(ys),
+            fams, szs,
+            xlabel=f"{MODALITY_LABEL[modality]} [Parameters]",
+            ylabel=("Mean $R^2$" if is_first else ""),
+        )
+
+    seen: dict[str, object] = {}
+    for ax in axes:
+        ax.tick_params(axis="x",direction="in")
+        ax.tick_params(axis="x",direction="in", which='minor')
+        ax.tick_params(axis="y",direction="in")
+        ax.tick_params(axis="y",direction="in", which='minor')
+        for h, lab in zip(*ax.get_legend_handles_labels()):
+            if lab not in seen:
+                seen[lab] = h
+    fig.legend(
+        seen.values(), list(seen.keys()),
+        loc="upper center", fontsize=9, ncol=len(seen)//2,
+        columnspacing=0.55,
+        bbox_to_anchor=(0.52, 1.15),
+        handletextpad=0.1,
+        frameon=False
+    )
+
     fig.tight_layout()
-    out = FIGS_DIR / "r2_vs_model_size_per_property.pdf"
-    fig.savefig(out, dpi=150, bbox_inches="tight")
-    print(f"Saved to {out}")
+    plt.subplots_adjust(wspace=0.18, hspace=0)
+    out = FIGS_DIR / "r2_vs_params.pdf"
+    fig.savefig(out, dpi=300, bbox_inches="tight")
+    print(f"Saved {out}")
     plt.close(fig)
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--r2-json", type=Path, default=DEFAULT_R2_JSON,
+                        help="Path to r2_vs_params JSON")
+    parser.add_argument("--modalities", nargs="+", default=list(MODALITIES),
+                        choices=MODALITIES,
+                        help="Subset of modality panels to plot")
+    parser.add_argument("--exclude-families", nargs="*", default=[],
+                        metavar="FAMILY",
+                        help=f"Family names to drop (valid: "
+                             f"{sorted(FAMILY_STYLE)})")
+    args = parser.parse_args()
+
     FIGS_DIR.mkdir(exist_ok=True)
-    all_data = load_all_data()
-    plot_mean(all_data)
-    plot_per_property(all_data)
+
+    r2 = load_r2_json(args.r2_json)
+    print(f"Loaded R² JSON from {args.r2_json}")
+    print(f"Panels: {args.modalities}")
+    kept = [
+        (f, s) for f, sizes in PARAM_COUNTS.items()
+        if f not in set(args.exclude_families)
+        for s in sizes
+    ]
+    print(f"Models: {sum(len(v) for v in PARAM_COUNTS.values())} total, "
+          f"{len(kept)} after --exclude-families={args.exclude_families or '[]'}")
+
+    exclude = set(args.exclude_families)
+    modalities = tuple(args.modalities)
+    make_figure(r2, exclude, modalities)
 
 
 if __name__ == "__main__":
