@@ -91,6 +91,18 @@ print(f"MKNN alignment score: {score:.4f}")
 
 **Higher MKNN scores** indicate more similar representations between models or modalities.
 
+# Notes on Specformer:
+
+Note: the validation used ConvNeXtv2-Base (facebook/convnextv2-base-22k-224) for the image side. If more validation across other sizes/families is wanted we can run it, but it shouldn't be required — this confirms the SpecFormer adapter produces correct embeddings and the cross-modal MKNN is consistent with the paper.
+
+Re: whether platonic_universe run --model specformer --mode desi gives the same result — not directly. That command generates and saves the SpecFormer embeddings to parquet, but since specformer is spectral-only it skips HSC and metric computation. To reproduce this MKNN via the CLI you'd:
+
+    platonic_universe run --model specformer --mode desi → fresh specformer embeddings
+    platonic_universe run --model convnext --mode desi → ConvNeXtv2 HSC embeddings (+ pre-computed DESI embeddings from Smith42/specformer_desi)
+    platonic_universe compare <specformer_parquet> --ref <convnext_parquet> --mode desi
+
+Step 2 already produces an MKNN using the pre-computed specformer embeddings from HuggingFace, so that's the quickest way to sanity-check. The validation script above computes embeddings fresh end-to-end as an independent check.
+
 ## Contributing
 
 This project is open source under the AGPLv3.

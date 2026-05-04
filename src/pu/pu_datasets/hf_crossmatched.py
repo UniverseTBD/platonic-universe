@@ -20,6 +20,11 @@ class HFCrossmatchedAdapter(DatasetAdapter):
                 .map(processor)
                 .remove_columns([f"{mode}_image" for mode in modes])
             )
+            # When streaming=False (monkey-patched in run_extraction.py), .map()
+            # writes to Arrow which returns tensors as Python lists. with_format
+            # keeps them as torch tensors. Safe no-op for true streaming mode.
+            if hasattr(ds, "with_format"):
+                ds = ds.with_format("torch")
             return ds
         else:
             raise NotImplementedError(

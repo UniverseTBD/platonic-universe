@@ -25,6 +25,10 @@ class SDSSAdapter(DatasetAdapter):
             .map(processor)
             .remove_columns(["hsc_image"])
         )
+        # See hf_crossmatched.py: required when streaming=False so .map() output
+        # is returned as torch tensors instead of Python lists.
+        if hasattr(ds, "with_format"):
+            ds = ds.with_format("torch")
         return ds
 
 # Register adapter

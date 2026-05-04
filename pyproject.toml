@@ -14,21 +14,50 @@ dependencies = [
     "polars>=1.32.2",
     "scikit-image>=0.25.2",
     "scikit-learn>=1.7.1",
+    "scipy>=1.15.0",
     "torch>=2.8.0",
     "transformers>=4.55.0",
-    "pybind11>=3.0.1"
-
+    "pybind11>=3.0.1",
+    "pytest>=8.0.0",
+    "calibrated-similarity>=0.1.1",
+    "accelerate>=1.13.0",
+    "huggingface-hub>=0.20.0",
 ]
 
 [project.optional-dependencies]
 sam2 = ["sam-2 @ git+https://github.com/facebookresearch/sam2.git"]
+aion = ["polymathic-aion"]
+cosmosweb = [
+    "matplotlib>=3.9.0",
+    "tqdm>=4.66.0",
+]
+platonic-compute = [
+    "huggingface-hub>=0.20.0",
+    "pynndescent>=0.5.0",
+    "umap-learn>=0.5.0",
+    "faiss-cpu>=1.8.0",
+    "tqdm>=4.66.0",
+]
+platonic-extract = [
+    "huggingface-hub>=0.20.0",
+    "tqdm>=4.66.0",
+]
+platonic-regress = [
+    "huggingface-hub>=0.20.0",
+    "tqdm>=4.66.0",
+    "matplotlib>=3.9.0",
+    "umap-learn>=0.5.0",
+    "pynndescent>=0.5.0",
+    "faiss-cpu>=1.8.0",
+    "scipy>=1.10.0",
+]
 
 [build-system]  
 requires = ["setuptools>=42", "wheel", "pybind11>=2.10"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-platonic_universe = "pu.__main__:main"
+pu = "pu.__main__:main"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
@@ -46,3 +75,7 @@ packages = ["src/pu"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
