@@ -33,9 +33,15 @@ mirror is public.
 
 ## Step 3 — Reproduce every paper figure
 
+These instructions assume a Linux or other Unix-like environment
+(macOS works; on Windows, use WSL).
+
 ```
-bash reproduce_figures.sh
+chmod +x reproduce_figures.sh
+./reproduce_figures.sh
 ```
+
+(Or, if you'd rather skip the `chmod`, just `bash reproduce_figures.sh`.)
 
 That single command pulls the necessary embeddings from Hugging Face,
 computes the Procrustes distances + cosine-similarity matrices, and
