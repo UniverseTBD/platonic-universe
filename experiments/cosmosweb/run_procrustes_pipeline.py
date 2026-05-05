@@ -2,7 +2,7 @@
 """End-to-end runner: Hugging Face embeddings → Procrustes pkl → paper figures.
 
 Steps:
-  1. Stream-convert <anon>/pu-embeddings/cosmosweb/*.parquet to .npy.
+  1. Stream-convert HCVYM5w6Gn/pu-embeddings/cosmosweb/*.parquet to .npy.
   2. Run probe_weight_analysis.py to fit linear probes, compute the 3×3
      cosine-similarity matrices, and save the per-(family, size) Procrustes
      distance pickle.
@@ -26,7 +26,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DATASET = "<anon>/cosmosweb-hsc-jwst-high-snr-pil2"
+DATASET = "HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2"
 DS_TAG  = "cosmosweb-hsc-jwst-high-snr-pil2"
 N_USE   = 45000
 
@@ -65,7 +65,7 @@ def step_probe_weight_analysis() -> None:
         PWA_OUT_DIR=str(OUT_DIR),
         PWA_EMB_DIR=str(EMB_DIR),
         PWA_N_USE=str(N_USE),
-        # Embeddings on <anon>/pu-embeddings are NOT the upsampled flavour.
+        # Embeddings on HCVYM5w6Gn/pu-embeddings are NOT the upsampled flavour.
         PWA_UPSAMPLE_SUFFIX="",
     )
     rc = subprocess.call(

@@ -82,7 +82,7 @@ model_map = {
     ),
     "astropt": (
         ["015M", "095M", "850M"],
-        [f"<anon>/astroPT_v2.0" for _ in range(3)],
+        [f"HCVYM5w6Gn/astroPT_v2.0" for _ in range(3)],
     ),
     "vit-mae": (
         ["base", "large", "huge"],

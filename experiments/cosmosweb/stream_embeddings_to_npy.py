@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Stream parquet → .npy conversion for the COSMOS-Web embeddings hosted at
-``<anon>/pu-embeddings/cosmosweb/``.
+``HCVYM5w6Gn/pu-embeddings/cosmosweb/``.
 
 Each parquet is downloaded one at a time, converted to the .npy file name
 expected by ``probe_weight_analysis.py``, and the parquet is deleted before
@@ -11,7 +11,7 @@ Output layout:
   <OUT_DIR>/<telescope>_embeddings_<DS_TAG>_<alias>_<size>_<N_USE>.npy
 
 Configuration via env vars (defaults reproduce the paper's basket):
-  STREAM_REPO          <anon>/pu-embeddings  (HF dataset id)
+  STREAM_REPO          HCVYM5w6Gn/pu-embeddings  (HF dataset id)
   STREAM_FOLDER        cosmosweb                  (sub-folder in the repo)
   STREAM_DS_TAG        cosmosweb-hsc-jwst-high-snr-pil2
   STREAM_N_USE         45000
@@ -21,7 +21,7 @@ Configuration via env vars (defaults reproduce the paper's basket):
                                                    pairs to limit; empty = all)
 
 Usage:
-  PWA_DATASET=<anon>/cosmosweb-hsc-jwst-high-snr-pil2 \
+  PWA_DATASET=HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2 \
   python experiments/cosmosweb/stream_embeddings_to_npy.py
 """
 from __future__ import annotations
@@ -64,7 +64,7 @@ def parse_subset(s: str) -> list[tuple[str, str]] | None:
 
 
 def main() -> int:
-    repo     = os.environ.get("STREAM_REPO",   "<anon>/pu-embeddings")
+    repo     = os.environ.get("STREAM_REPO",   "HCVYM5w6Gn/pu-embeddings")
     folder   = os.environ.get("STREAM_FOLDER", "cosmosweb")
     ds_tag   = os.environ.get("STREAM_DS_TAG", "cosmosweb-hsc-jwst-high-snr-pil2")
     n_use    = int(os.environ.get("STREAM_N_USE", "45000"))

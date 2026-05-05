@@ -118,7 +118,7 @@ def run_benchmark(config: BenchmarkConfig) -> Dict[str, Any]:
 
     comp_mode = config.mode
     modes = ["hsc", comp_mode]
-    hf_ds = f"<anon>/{comp_mode}_hsc_crossmatched"
+    hf_ds = f"HCVYM5w6Gn/{comp_mode}_hsc_crossmatched"
 
     # Model configuration - use only specified size
     model_map = {

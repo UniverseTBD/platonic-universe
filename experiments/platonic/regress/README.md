@@ -2,7 +2,7 @@
 
 Linear-probe every foundation model's embeddings against the LEPHARE
 physics labels (redshift, mass, sSFR, mag_g, mag_r, g–r colour) on the
-`<anon>/cosmosweb-hsc-jwst-high-snr-pil2` dataset. The whole pipeline
+`HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2` dataset. The whole pipeline
 is two scripts and reproduces the regression numbers in the paper end
 to end.
 
@@ -142,7 +142,7 @@ comparisons are visually fair.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `PU_REGRESS_DATASET` | `<anon>/cosmosweb-hsc-jwst-high-snr-pil2` | source dataset |
+| `PU_REGRESS_DATASET` | `HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2` | source dataset |
 | `PU_REGRESS_N_USE` | `45000` | catalog / embedding sample size |
 | `PU_REGRESS_BATCH_SIZE` | `16` | inference batch size |
 | `PU_REGRESS_N_RUNS` | `10` | random train/test splits per probe |

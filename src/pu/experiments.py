@@ -37,7 +37,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         modes = [comp_mode]
     else:
         modes = ["hsc", comp_mode]
-    hf_ds = f"<anon>/{comp_mode}_hsc_crossmatched"
+    hf_ds = f"HCVYM5w6Gn/{comp_mode}_hsc_crossmatched"
 
     def filterfun(idx):
         if "jwst" != comp_mode:
@@ -99,7 +99,7 @@ def run_experiment(model_alias, mode, output_dataset=None, batch_size=128, num_w
         ),
         "astropt": (
             ["015M", "095M", "850M"],
-            [f"<anon>/astroPT_v2.0" for _ in range(3)],
+            [f"HCVYM5w6Gn/astroPT_v2.0" for _ in range(3)],
         ),
         "vit-mae": (
             ["base", "large", "huge"],

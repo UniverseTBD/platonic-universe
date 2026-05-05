@@ -15,14 +15,14 @@ Astronomical observations provide an ideal testbed for the PRH because:
 
 Our results (below) show that **larger models exhibit more similar representations**, even when trained across different data modalities. This suggests that astronomical foundation models may be able to leverage pre-trained general-purpose architectures.
 
-<img src="https://github.com/<anon>/platonic-universe/blob/main/figs/mknn.png" width=100%/>
+<img src="https://github.com/HCVYM5w6Gn/platonic-universe/blob/main/figs/mknn.png" width=100%/>
 
 
 ## Installation
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/<anon>/platonic-universe.git](https://github.com/<anon>/platonic-universe.git)
+    git clone [https://github.com/HCVYM5w6Gn/platonic-universe.git](https://github.com/HCVYM5w6Gn/platonic-universe.git)
     cd platonic-universe    
     ```
 
@@ -98,7 +98,7 @@ Note: the validation used ConvNeXtv2-Base (facebook/convnextv2-base-22k-224) for
 Re: whether platonic_universe run --model specformer --mode desi gives the same result — not directly. That command generates and saves the SpecFormer embeddings to parquet, but since specformer is spectral-only it skips HSC and metric computation. To reproduce this MKNN via the CLI you'd:
 
     platonic_universe run --model specformer --mode desi → fresh specformer embeddings
-    platonic_universe run --model convnext --mode desi → ConvNeXtv2 HSC embeddings (+ pre-computed DESI embeddings from <anon>/specformer_desi)
+    platonic_universe run --model convnext --mode desi → ConvNeXtv2 HSC embeddings (+ pre-computed DESI embeddings from HCVYM5w6Gn/specformer_desi)
     platonic_universe compare <specformer_parquet> --ref <convnext_parquet> --mode desi
 
 Step 2 already produces an MKNN using the pre-computed specformer embeddings from HuggingFace, so that's the quickest way to sanity-check. The validation script above computes embeddings fresh end-to-end as an independent check.

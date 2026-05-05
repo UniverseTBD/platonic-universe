@@ -98,7 +98,7 @@ def load_catalog(n_use: int) -> dict[str, np.ndarray]:
     from pu.pu_datasets.cosmosweb import CATALOG_COLUMNS
     dataset = os.environ.get(
         "PU_REGRESS_DATASET",
-        "<anon>/cosmosweb-hsc-jwst-high-snr-pil2",
+        "HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2",
     )
     print(f"streaming {dataset} for catalog labels (N={n_use})")
     cols = list(CATALOG_COLUMNS.values())

@@ -14,7 +14,7 @@ extraction is required.
 ## What the pipeline does
 
 ```
-<anon>/pu-embeddings/cosmosweb/*.parquet   ← upstream, on HF
+HCVYM5w6Gn/pu-embeddings/cosmosweb/*.parquet   ← upstream, on HF
        │
        │  (1) stream_embeddings_to_npy.py
        ▼
@@ -58,7 +58,7 @@ ls figs/*procrustes*.pdf
 ```
 STREAM_SUBSET="dinov3:vits16,dinov3:vitb16,convnext:nano,convnext:tiny,astropt:015M,astropt:095M" \
   python experiments/cosmosweb/stream_embeddings_to_npy.py
-PWA_DATASET=<anon>/cosmosweb-hsc-jwst-high-snr-pil2 \
+PWA_DATASET=HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2 \
 PWA_OUT_DIR=analysis/probe_smoke \
 PWA_EMB_DIR=analysis/probe_smoke/embeddings \
 PWA_UPSAMPLE_SUFFIX="" \
@@ -81,7 +81,7 @@ basket — e.g. for smoke tests or for a per-family debugging run.
 
 `probe_weight_analysis.py` consumes per-`(telescope, alias, size)` .npy
 embedding files. The actual embeddings live on HF as parquet shards under
-`<anon>/pu-embeddings/cosmosweb/`. Previously the parquet → .npy
+`HCVYM5w6Gn/pu-embeddings/cosmosweb/`. Previously the parquet → .npy
 conversion + the script execution were undocumented manual steps on
 contributors' personal machines, which is why the Procrustes pkl was not
 reproducible by anyone else. This pipeline removes that dependency on a

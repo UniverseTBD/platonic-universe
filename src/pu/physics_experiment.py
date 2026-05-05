@@ -1,7 +1,7 @@
 """
 Physics test runner.
 
-Generates embeddings from <anon>/galaxies (v2.0) and evaluates how well
+Generates embeddings from HCVYM5w6Gn/galaxies (v2.0) and evaluates how well
 they predict physical galaxy properties using linear probes, neighbour
 consistency, and distance correlation.
 
@@ -87,7 +87,7 @@ PHYSICS_MODEL_MAP = {
     ),
     "astropt": (
         ["015M", "095M", "850M"],
-        [f"<anon>/astroPT_v2.0" for _ in range(3)],
+        [f"HCVYM5w6Gn/astroPT_v2.0" for _ in range(3)],
     ),
     "sam2": (
         ["tiny", "small", "base-plus", "large"],
@@ -125,7 +125,7 @@ PHYSICS_MODEL_MAP = {
 
 
 def _make_galaxies_preprocessor(adapter, model_alias):
-    """Build a preprocessor that works with <anon>/galaxies image column.
+    """Build a preprocessor that works with HCVYM5w6Gn/galaxies image column.
 
     For HF-based models we wrap the raw autoprocessor directly around the
     PIL image.  For astropt / sam2 we delegate to the adapter's own
@@ -394,7 +394,7 @@ def run_physics_experiment(
     pca_components: int | None = None,
 ) -> dict[str, Any]:
     """
-    Run physics validation tests for a model against <anon>/galaxies.
+    Run physics validation tests for a model against HCVYM5w6Gn/galaxies.
 
     Args:
         model_alias: Model to test (e.g., 'vit', 'dino', 'convnext')
@@ -420,7 +420,7 @@ def run_physics_experiment(
     sizes, model_names = PHYSICS_MODEL_MAP[model_alias]
     adapter_cls = get_adapter(model_alias)
 
-    hf_ds = "<anon>/galaxies"
+    hf_ds = "HCVYM5w6Gn/galaxies"
     property_keys = properties or DEFAULT_PROPERTIES
 
     all_results: dict[str, Any] = {
@@ -594,7 +594,7 @@ def rerun_physics_from_parquet(
     Re-run physics tests from saved parquet embeddings — no inference needed.
 
     Loads embeddings from parquet files written by ``run_physics_experiment``
-    and re-streams the <anon>/galaxies dataset for property labels only.
+    and re-streams the HCVYM5w6Gn/galaxies dataset for property labels only.
 
     Args:
         model_alias: Model to test (e.g., 'vit', 'dino')
@@ -649,7 +649,7 @@ def rerun_physics_from_parquet(
 
         # Stream dataset for property labels (no inference)
         ds = load_dataset(
-            "<anon>/galaxies", revision="v2.0", split=split, streaming=True,
+            "HCVYM5w6Gn/galaxies", revision="v2.0", split=split, streaming=True,
         )
         if max_samples is not None:
             ds = ds.take(max_samples)

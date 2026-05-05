@@ -33,7 +33,7 @@ Required environment
 Optional environment
 --------------------
     PU_EMB_REPO                 if set, also upload .npy embeddings here
-    PU_REGRESS_DATASET          default <anon>/cosmosweb-hsc-jwst-high-snr-pil2
+    PU_REGRESS_DATASET          default HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2
     PU_REGRESS_DLCACHE          default /tmp/pu_regress_dl/
     PU_REGRESS_N_USE            default 45000
     PU_REGRESS_BATCH_SIZE       default 16
@@ -73,7 +73,7 @@ COORD_REPO = os.environ["PU_REGRESS_RESULTS_REPO"]
 OUT_DIR    = Path(os.environ["PU_REGRESS_OUT"])
 LOCK_DIR   = Path(os.environ["PU_REGRESS_LOCKS"])
 DATASET    = os.environ.get("PU_REGRESS_DATASET",
-                            "<anon>/cosmosweb-hsc-jwst-high-snr-pil2")
+                            "HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2")
 DLCACHE    = Path(os.environ.get("PU_REGRESS_DLCACHE", "/tmp/pu_regress_dl"))
 N_USE      = int(os.environ.get("PU_REGRESS_N_USE", "45000"))
 BATCH_SIZE = int(os.environ.get("PU_REGRESS_BATCH_SIZE", "16"))
@@ -124,9 +124,9 @@ MODEL_GRID = [
     ("vjepa",      "large",      "facebook/vjepa2-vitl-fpc64-256",         307),
     ("vjepa",      "huge",       "facebook/vjepa2-vith-fpc64-256",         632),
     ("vjepa",      "giant",      "facebook/vjepa2-vitg-fpc64-256",         1011),
-    ("astropt",    "015M",       "<anon>/astroPT_v2.0",                  15),
-    ("astropt",    "095M",       "<anon>/astroPT_v2.0",                  95),
-    ("astropt",    "850M",       "<anon>/astroPT_v2.0",                  850),
+    ("astropt",    "015M",       "HCVYM5w6Gn/astroPT_v2.0",                  15),
+    ("astropt",    "095M",       "HCVYM5w6Gn/astroPT_v2.0",                  95),
+    ("astropt",    "850M",       "HCVYM5w6Gn/astroPT_v2.0",                  850),
     ("vit-mae",    "base",       "facebook/vit-mae-base",                 86),
     ("vit-mae",    "large",      "facebook/vit-mae-large",                307),
     ("vit-mae",    "huge",       "facebook/vit-mae-huge",                 632),

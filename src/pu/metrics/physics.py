@@ -2,7 +2,7 @@
 Physics-informed validation metrics.
 
 Test whether embeddings encode physically meaningful galaxy properties
-from the <anon>/galaxies dataset. These metrics complement the
+from the HCVYM5w6Gn/galaxies dataset. These metrics complement the
 representational similarity metrics (CKA, MKNN, etc.) by checking that
 convergent representations actually capture real astrophysics.
 
@@ -10,7 +10,7 @@ The key idea: if foundation models converge toward a shared representation
 of reality (the Platonic Representation Hypothesis), then embeddings should
 predict physical galaxy properties — and larger models should do so better.
 
-Requires: <anon>/galaxies (revision v2.0) which bundles metadata directly.
+Requires: HCVYM5w6Gn/galaxies (revision v2.0) which bundles metadata directly.
 """
 
 
@@ -29,7 +29,7 @@ from sklearn.preprocessing import StandardScaler
 
 # ---------------------------------------------------------------------------
 # Canonical physical properties to probe, grouped by science domain.
-# Each entry maps a short key to the column name in <anon>/galaxies v2.0.
+# Each entry maps a short key to the column name in HCVYM5w6Gn/galaxies v2.0.
 # ---------------------------------------------------------------------------
 
 PROPERTY_GROUPS: dict[str, dict[str, str]] = {

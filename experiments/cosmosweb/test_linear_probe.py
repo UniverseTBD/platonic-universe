@@ -33,7 +33,7 @@ from sklearn.metrics import r2_score
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 N_GALAXIES = 45000
-DATASET    = "<anon>/cosmosweb-hsc-jwst-high-snr-pil2"
+DATASET    = "HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2"
 BATCH_SIZE = 128
 OUT_DIR    = "/scratch/<user>/platonic_universe"
 MODELS     = {

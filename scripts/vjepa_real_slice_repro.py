@@ -1,5 +1,5 @@
 """Reproduce the vjepa Arrow/OOM failure on a small slice of the real
-<anon>/legacysurvey_hsc_crossmatched dataset, and verify this PR fixes it.
+HCVYM5w6Gn/legacysurvey_hsc_crossmatched dataset, and verify this PR fixes it.
 
 Runs the exact flow run_extraction.py uses: stream a slice, materialize
 to an in-memory Dataset, apply HFCrossmatchedAdapter's .map(processor),
@@ -47,7 +47,7 @@ N = int(sys.argv[1]) if len(sys.argv) > 1 else 1500
 MODEL_ALIAS = "vjepa"
 SIZE = "large"
 HF_NAME = "facebook/vjepa2-vitl-fpc64-256"
-HF_DS = "<anon>/legacysurvey_hsc_crossmatched"
+HF_DS = "HCVYM5w6Gn/legacysurvey_hsc_crossmatched"
 
 
 def main():

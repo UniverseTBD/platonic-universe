@@ -32,7 +32,7 @@ from scipy.stats import spearmanr, ttest_1samp
 from pu.metrics import mknn
 
 
-HF_REPO = "<anon>/pu-embeddings"
+HF_REPO = "HCVYM5w6Gn/pu-embeddings"
 HF_BASE = f"https://huggingface.co/datasets/{HF_REPO}/resolve/main"
 
 FAMILIES: dict[str, dict] = {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Plot MKNN embedding similarity (mean MKNN vs every other model) against
-physics linear-probe R² (mean over stable <anon>/galaxies properties).
+physics linear-probe R² (mean over stable HCVYM5w6Gn/galaxies properties).
 
 One point per model. Tests the PRH prediction that models whose
 neighborhood structure is closer to the consensus also encode more physics.
@@ -126,7 +126,7 @@ def load_labels(n_samples: int) -> dict[str, np.ndarray]:
     from datasets import load_dataset
 
     ds = load_dataset(
-        "<anon>/galaxies", revision="v2.0", split="test", streaming=True,
+        "HCVYM5w6Gn/galaxies", revision="v2.0", split="test", streaming=True,
     )
     keys = STABLE_PROPS
     buckets: dict[str, list[float]] = {k: [] for k in keys}
