@@ -32,10 +32,6 @@ Hugging Face under the anonymous account `HCVYM5w6Gn`:
 | `HCVYM5w6Gn/specformer_desi` | Pre-computed Specformer embeddings of DESI |
 | `HCVYM5w6Gn/SDSS_Interpolated` | SDSS spectra interpolated to DESI grid |
 | `HCVYM5w6Gn/pu-embeddings` | Per-(model, modality) frozen embeddings |
-| `HCVYM5w6Gn/pu-solve-results` | Per-(survey, model) calibrated CKA + MKNN + shape stats |
-| `HCVYM5w6Gn/pu-umap-results` | Per-block kNN-purity + UMAP coords |
-| `HCVYM5w6Gn/pu-regress-results` | Linear-probe R² per (modality, model, property) |
-| `HCVYM5w6Gn/pu-regress-embeddings` | Final-block embeddings (45k galaxies) |
 | `HCVYM5w6Gn/astroPT_v2.0` (model) | AstroPT v2 checkpoints |
 
 `HF_TOKEN` is **not** required — every mirror is public.
