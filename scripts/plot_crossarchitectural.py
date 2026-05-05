@@ -8,13 +8,14 @@ and plot that against its HSC mean R² across (redshift, mass, sSFR)
 from ``r2_vs_params_45000galaxies_upsampled.json``.
 
 Embeddings are loaded from ``data/jwst/jwst_{family}_{size}.parquet``,
-which each contain both an ``_hsc`` and a ``_jwst`` column, giving one
-cross-architectural MKNN/CKA panel per modality (HSC and JWST side by
-side), mirroring the layout of ``plot_crossmodal.py``.
+which each contain both an ``_hsc`` and a ``_jwst`` column. We produce
+one figure per modality (HSC and JWST), each laying out MKNN | CKA
+panels with mean HSC R² on the x-axis and the cross-architectural
+metric % on the y-axis — matching the plotting style of
+``plot_crossmodal.py`` / ``plot_intramodal.py``.
 
-One panel per modality, one point per model. Tests the PRH prediction
-that models closer to the cross-architecture consensus also retain more
-physics information.
+One point per model. Tests the PRH prediction that models closer to
+the cross-architecture consensus also retain more physics information.
 
 Complements ``plot_intramodal.py`` (same-family scaling) and
 ``plot_crossmodal.py`` (same-model across modalities).
@@ -34,6 +35,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import numpy as np
 import polars as pl
 from scipy.stats import pearsonr, spearmanr
@@ -114,6 +116,20 @@ FAMILY_STYLE = {
     "astropt":   {"label": "AstroPT",     "color": "#e377c2", "marker": "*"},
     "paligemma": {"label": "PaliGemma 2", "color": "#17becf", "marker": "h"},
     "llava_15":  {"label": "LLaVA 1.5",   "color": "#7f7f7f", "marker": "X"},
+}
+
+ONE_DP = FuncFormatter(lambda v, _: f"{v:.1f}".rstrip("0").rstrip("."))
+
+PROP_XLABEL = {
+    None: r"Mean $R^2$",
+    "sSFR": r"sSFR $R^2$",
+    "mass": r"$M_\ast$ $R^2$",
+    "redshift": r"$z$ $R^2$",
+}
+PROP_FILE_SUFFIX = {
+    "sSFR": "ssfr",
+    "mass": "mass",
+    "redshift": "z",
 }
 
 
@@ -406,9 +422,10 @@ def plot_scatter(
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.sum() >= 3:
         rho, p_rho = spearmanr(x[finite], y[finite])
+        r, p_r = pearsonr(x[finite], y[finite])
         ax.text(
-            0.95, -0.01,
-            f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
+            0.95, 0.05,
+            f"ρ = {rho:.3f}  (p = {p_rho:.1g})",
             transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
             bbox=None,
         )
@@ -423,61 +440,69 @@ def plot_scatter(
     ax.set_ylabel(ylabel, fontsize=11)
 
 
-def metric_axis_label(modality: str, metric: str, method: str) -> str:
-    metric_label = metric.upper()
-    return f"{MODALITY_LABEL[modality]} [{metric_label} %]"
-
-
 def method_suffix(method: str) -> str:
     return "" if method == "compare" else f"_{method}"
 
 
 def _make_figure(
-    x_per_modality: dict[str, np.ndarray],
-    mean_y: np.ndarray,
+    x_r2: np.ndarray,
+    y_per_modality: dict[str, dict[str, np.ndarray]],
     families: list[str],
-    metric: str,
     method: str,
     out_name: str,
+    prop: str | None = None,
 ) -> None:
-    modalities = list(x_per_modality)
-    n_panels = len(modalities)
+    """2×2 figure: rows = MKNN / CKA, columns = JWST / HSC."""
+    # (row, col, metric, modality, ylabel)
+    panels = [
+        (0, 0, "mknn", "jwst", "MKNN %"),
+        (0, 1, "mknn", "hsc",  ""),
+        (1, 0, "cka",  "jwst", "CKA %"),
+        (1, 1, "cka",  "hsc",  ""),
+    ]
+
     fig, axes = plt.subplots(
-        1, n_panels, figsize=(6, 2.5), sharey=True,
+        2, 2, figsize=(5, 4),
+        sharex=True,
     )
-    if n_panels == 1:
-        axes = [axes]
 
+    xlabel_str = PROP_XLABEL[prop]
 
-    for ax, modality in zip(axes, modalities):
-        is_first = ax is axes[0]
+    for row_idx, col_idx, metric_key, modality, ylabel in panels:
+        ax = axes[row_idx, col_idx]
+        ys = y_per_modality[modality][metric_key] * 100.0
+        xlabel = xlabel_str if row_idx == 1 else ""
 
         plot_scatter(
             ax,
-            x_per_modality[modality] * 100.0, mean_y,
+            x_r2, ys,
             families,
-            xlabel=metric_axis_label(modality, metric, method),
-            ylabel="Mean $R^2$" if is_first else "",
+            xlabel=xlabel,
+            ylabel=ylabel,
         )
 
+    axes[0, 0].set_title("JWST", fontsize=11)
+    axes[0, 1].set_title("HSC", fontsize=11)
+
     seen: dict[str, object] = {}
-    for ax in axes:
-        ax.tick_params(axis="x",direction="in")
-        ax.tick_params(axis="y",direction="in")
+    for ax in axes.ravel():
+        ax.tick_params(axis="x", direction="in")
+        ax.tick_params(axis="y", direction="in")
+        ax.yaxis.set_major_formatter(ONE_DP)
         for h, lab in zip(*ax.get_legend_handles_labels()):
             if lab not in seen:
                 seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
-        loc="upper center", fontsize=9, ncol=(len(seen)//2 + 1),
-        columnspacing=0.55,
-        bbox_to_anchor=(0.52, 1.15),
+        loc="upper center", fontsize=9, ncol=len(seen)//2 + 1,
+        columnspacing=0.4,
+        bbox_to_anchor=(0.52, 1.1),
         handletextpad=0.1,
-        frameon=False
+        frameon=False,
     )
 
     fig.tight_layout()
-    plt.subplots_adjust(wspace=0.05, hspace=0)
+    plt.subplots_adjust(wspace=0.18, hspace=0.08)
     out = FIGS_DIR / out_name
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")
@@ -550,28 +575,40 @@ def main():
 
     labels = [f"{f}_{s}" for f, s, _ in models]
     families = [f for f, s, _ in models]
-    y = np.array([r2_for_model(r2, f, s) for f, s, _ in models])
 
-    x_per_metric: dict[str, dict[str, np.ndarray]] = {m: {} for m in METRICS}
+    r2_mean = np.array([r2_for_model(r2, f, s) for f, s, _ in models])
+    r2_per_prop: dict[str, np.ndarray] = {
+        prop: np.array([r2_for_model_prop(r2, f, s, prop) for f, s, _ in models])
+        for prop in PROP_FILE_SUFFIX
+    }
+
+    y_per_modality: dict[str, dict[str, np.ndarray]] = {}
     for modality in MODALITIES:
         mats = compute_or_load_matrices(
             models, labels, idx, args.recompute, modality, args.method,
             workers=args.workers, blas_threads=args.blas_threads,
         )
-        for name in METRICS:
-            x_per_metric[name][modality] = np.nanmean(mats[name], axis=1)
+        y_per_modality[modality] = {
+            name: np.nanmean(mats[name], axis=1) for name in METRICS
+        }
 
     suffix = method_suffix(args.method)
     _make_figure(
-        x_per_metric["mknn"], y, families,
-        metric="mknn", method=args.method,
+        x_r2=r2_mean,
+        y_per_modality=y_per_modality,
+        families=families,
+        method=args.method,
         out_name=f"crossarchitectural{suffix}.pdf",
     )
-    _make_figure(
-        x_per_metric["cka"], y, families,
-        metric="cka", method=args.method,
-        out_name=f"crossarchitectural_cka{suffix}.pdf",
-    )
+    for prop, prop_suffix in PROP_FILE_SUFFIX.items():
+        _make_figure(
+            x_r2=r2_per_prop[prop],
+            y_per_modality=y_per_modality,
+            families=families,
+            method=args.method,
+            out_name=f"crossarchitectural_{prop_suffix}{suffix}.pdf",
+            prop=prop,
+        )
 
 
 if __name__ == "__main__":

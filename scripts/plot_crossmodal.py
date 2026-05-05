@@ -20,6 +20,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
@@ -96,26 +97,48 @@ MODELS = [
 MKNN_COL = {"jwst": 2, "legacysurvey": 3, "desi": 4}
 CKA_COL  = {"jwst": 5, "legacysurvey": 6, "desi": 7}
 
+PROP_XLABEL = {
+    None: r"Mean $R^2$",
+    "sSFR": r"sSFR $R^2$",
+    "mass": r"$M_\ast$ $R^2$",
+    "redshift": r"$z$ $R^2$",
+}
+PROP_FILE_SUFFIX = {
+    "sSFR": "ssfr",
+    "mass": "mass",
+    "redshift": "z",
+}
+
+ONE_DP = FuncFormatter(lambda v, _: f"{v:.1f}".rstrip("0").rstrip("."))
+
 
 def load_r2_json(path: Path) -> dict:
     with open(path) as f:
         return json.load(f)
 
 
-def r2_for_model(r2: dict, family: str, size: str) -> float:
+def r2_for_model(
+    r2: dict, family: str, size: str, prop: str | None = None
+) -> float:
     try:
         entry = r2["hsc"][family][size]
     except KeyError as e:
         raise KeyError(
             f"{family}/{size} missing under modality 'hsc' in R² JSON"
         ) from e
-    vals = []
-    for prop in R2_PROPS:
+    if prop is not None:
         if prop not in entry:
             raise KeyError(
                 f"{family}/{size} missing property {prop!r} under 'hsc'"
             )
-        vals.append(float(entry[prop]["r2_mean"]))
+        return float(entry[prop]["r2_mean"])
+    vals = []
+    for p in R2_PROPS:
+        if p not in entry:
+            raise KeyError(
+                f"{family}/{size} missing property {p!r} under 'hsc'"
+            )
+        vals.append(float(entry[p]["r2_mean"]))
     return float(np.mean(vals))
 
 
@@ -207,7 +230,7 @@ def plot_partial(
     ax.set_xlim(xlim)
     ax.text(
         0.05, 0.95,
-        f"β = {ancova['slope']:.3f} (p = {ancova['p']:.1g})\n",
+        f"β = {ancova['slope']:.3g} (p = {ancova['p']:.1g})\n",
         transform=ax.transAxes, va="top", ha="left", fontsize=9,
     )
     ax.set_xlabel(xlabel, fontsize=11)
@@ -240,9 +263,9 @@ def plot_scatter(
         rho, p_rho = spearmanr(x[finite], y[finite])
         r, p_r = pearsonr(x[finite], y[finite])
         ax.text(
-            0.95, -0.01,
-            f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
-            transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
+            0.05, 0.90,
+            f"ρ = {rho:.3f}  (p = {p_rho:.1g})",
+            transform=ax.transAxes, va="top", ha="left", fontsize=9,
             bbox=None,
         )
 
@@ -256,14 +279,12 @@ def plot_scatter(
     ax.set_ylabel(ylabel, fontsize=11)
 
 
-def _make_figure(
+def make_figure(
     models: list[tuple],
     r2: dict,
     exclude_families: set[str],
     modalities: tuple[str, ...],
-    col_map: dict[str, int],
-    metric_label: str,
-    out_name: str,
+    out_name: str = "crossmodal.pdf",
 ) -> None:
     unknown = exclude_families - set(FAMILY_STYLE)
     if unknown:
@@ -276,42 +297,51 @@ def _make_figure(
     if not kept:
         raise RuntimeError("No models left after applying --exclude-families")
 
-    n_panels = len(modalities)
+    metric_rows = [
+        ("MKNN", MKNN_COL),
+        ("CKA",  CKA_COL),
+    ]
+    n_rows = len(metric_rows)
+    n_cols = len(modalities)
+
     fig, axes = plt.subplots(
-        1, n_panels, figsize=(8, 2.0), sharey=True,
+        n_rows, n_cols, figsize=(8, 3.0),
+        sharex=True, #sharey="row",
     )
-    if n_panels == 1:
-        axes = [axes]
 
-    for ax, modality in zip(axes, modalities):
-        col = col_map[modality]
-        xs, ys, fams, szs = [], [], [], []
-        for m in kept:
-            family, size = m[0], m[1]
-            val = m[col]
-            if val is None:
-                continue
-            xs.append(float(val) / 100.0)
-            ys.append(r2_for_model(r2, family, size))
-            fams.append(family)
-            szs.append(size)
+    for row_idx, (metric_label, col_map) in enumerate(metric_rows):
+        for col_idx, modality in enumerate(modalities):
+            ax = axes[row_idx, col_idx]
+            col = col_map[modality]
+            xs, ys, fams, szs = [], [], [], []
+            for m in kept:
+                family, size = m[0], m[1]
+                val = m[col]
+                if val is None:
+                    continue
+                xs.append(r2_for_model(r2, family, size))
+                ys.append(float(val) / 100.0)
+                fams.append(family)
+                szs.append(size)
 
-        is_first = ax is axes[0]
-        plot_scatter(
-            ax,
-            np.array(xs)*100, np.array(ys),
-            fams, szs,
-            xlabel=f"{MODALITY_LABEL[modality]} [{metric_label} %]",
-            ylabel=(
-                "Mean $R^2$"
-                if is_first else ""
-            ),
-        )
+            is_first_col = col_idx == 0
+            is_last_row = row_idx == n_rows - 1
+
+            plot_scatter(
+                ax,
+                np.array(xs), np.array(ys) * 100,
+                fams, szs,
+                xlabel="Mean $R^2$" if is_last_row else "",
+                ylabel=f"{metric_label} %" if is_first_col else "",
+            )
+            if row_idx == 0:
+                ax.set_title(MODALITY_LABEL[modality], fontsize=11)
 
     seen: dict[str, object] = {}
-    for ax in axes:
-        ax.tick_params(axis="x",direction="in")
-        ax.tick_params(axis="y",direction="in")
+    for ax in axes.flat:
+        ax.tick_params(axis="x", direction="in")
+        ax.tick_params(axis="y", direction="in")
+        ax.yaxis.set_major_formatter(ONE_DP)
         for h, lab in zip(*ax.get_legend_handles_labels()):
             if lab not in seen:
                 seen[lab] = h
@@ -319,102 +349,93 @@ def _make_figure(
         seen.values(), list(seen.keys()),
         loc="upper center", fontsize=9, ncol=len(seen),
         columnspacing=0.55,
-        bbox_to_anchor=(0.52, 1.08),
+        bbox_to_anchor=(0.52, 1.06),
         handletextpad=0.1,
         frameon=False,
     )
 
     fig.tight_layout()
-    plt.subplots_adjust(wspace=0.05, hspace=0)
+    plt.subplots_adjust(wspace=0.15, hspace=0.08)
     out = FIGS_DIR / out_name
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")
     plt.close(fig)
 
 
-def _make_partial_figure(
+def make_partial_figure(
     models: list[tuple],
     r2: dict,
     exclude_families: set[str],
     modalities: tuple[str, ...],
-    col_map: dict[str, int],
-    metric_label: str,
-    out_name: str,
+    out_name: str = "crossmodal_partial.pdf",
+    prop: str | None = None,
 ) -> None:
     kept = [m for m in models if m[0] not in exclude_families]
-    n_panels = len(modalities)
-    fig, axes = plt.subplots(1, n_panels, figsize=(8, 2.0), sharey=True)
-    if n_panels == 1:
-        axes = [axes]
 
-    for ax, modality in zip(axes, modalities):
-        col = col_map[modality]
-        xs, ys, fams = [], [], []
-        for m in kept:
-            family, size = m[0], m[1]
-            val = m[col]
-            if val is None:
-                continue
-            xs.append(float(val))
-            ys.append(r2_for_model(r2, family, size))
-            fams.append(family)
+    metric_rows = [
+        ("MKNN", MKNN_COL),
+        ("CKA",  CKA_COL),
+    ]
+    n_rows = len(metric_rows)
+    n_cols = len(modalities)
 
-        is_first = ax is axes[0]
-        plot_partial(
-            ax,
-            np.array(xs), np.array(ys),
-            fams,
-            xlabel=f"{MODALITY_LABEL[modality]} [$\Delta${metric_label} %]",
-            ylabel=(f"$\Delta R^2$" if is_first else ""),
-        )
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(8, 3.0),
+        sharex=True,
+    )
+
+    delta_xlabel = rf"$\Delta$ {PROP_XLABEL[prop]}"
+
+    for row_idx, (metric_label, col_map) in enumerate(metric_rows):
+        for col_idx, modality in enumerate(modalities):
+            ax = axes[row_idx, col_idx]
+            col = col_map[modality]
+            xs, ys, fams = [], [], []
+            for m in kept:
+                family, size = m[0], m[1]
+                val = m[col]
+                if val is None:
+                    continue
+                xs.append(r2_for_model(r2, family, size, prop=prop))
+                ys.append(float(val))
+                fams.append(family)
+
+            is_first_col = col_idx == 0
+            is_last_row = row_idx == n_rows - 1
+
+            plot_partial(
+                ax,
+                np.array(xs), np.array(ys),
+                fams,
+                xlabel=delta_xlabel if is_last_row else "",
+                ylabel=rf"$\Delta${metric_label} %" if is_first_col else "",
+            )
+            if row_idx == 0:
+                ax.set_title(MODALITY_LABEL[modality], fontsize=11)
 
     seen: dict[str, object] = {}
-    for ax in axes:
+    for ax in axes.flat:
         ax.tick_params(axis="x", direction="in")
         ax.tick_params(axis="y", direction="in")
+        ax.yaxis.set_major_formatter(ONE_DP)
         for h, lab in zip(*ax.get_legend_handles_labels()):
             if lab not in seen:
                 seen[lab] = h
     fig.legend(
         seen.values(), list(seen.keys()),
         loc="upper center", fontsize=9, ncol=len(seen),
-        columnspacing=0.55, bbox_to_anchor=(0.52, 1.08),
-        handletextpad=0.1, frameon=False,
+        columnspacing=0.55,
+        bbox_to_anchor=(0.52, 1.06),
+        handletextpad=0.1,
+        frameon=False,
     )
+
     fig.tight_layout()
-    plt.subplots_adjust(wspace=0.05, hspace=0)
+    plt.subplots_adjust(wspace=0.15, hspace=0.08)
     out = FIGS_DIR / out_name
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")
     plt.close(fig)
-
-
-def make_figure_mknn(
-    models: list[tuple],
-    r2: dict,
-    exclude_families: set[str],
-    modalities: tuple[str, ...],
-) -> None:
-    _make_figure(
-        models, r2, exclude_families, modalities,
-        col_map=MKNN_COL,
-        metric_label="MKNN",
-        out_name="crossmodal.pdf",
-    )
-
-
-def make_figure_cka(
-    models: list[tuple],
-    r2: dict,
-    exclude_families: set[str],
-    modalities: tuple[str, ...],
-) -> None:
-    _make_figure(
-        models, r2, exclude_families, modalities,
-        col_map=CKA_COL,
-        metric_label="CKA",
-        out_name="crossmodal_cka.pdf",
-    )
 
 
 def main():
@@ -442,18 +463,14 @@ def main():
 
     exclude = set(args.exclude_families)
     modalities = tuple(args.modalities)
-    make_figure_mknn(MODELS, r2, exclude, modalities)
-    make_figure_cka(MODELS, r2, exclude, modalities)
-    _make_partial_figure(
-        MODELS, r2, exclude, modalities,
-        col_map=MKNN_COL, metric_label="MKNN",
-        out_name="crossmodal_partial.pdf",
-    )
-    _make_partial_figure(
-        MODELS, r2, exclude, modalities,
-        col_map=CKA_COL, metric_label="CKA",
-        out_name="crossmodal_cka_partial.pdf",
-    )
+    make_figure(MODELS, r2, exclude, modalities)
+    make_partial_figure(MODELS, r2, exclude, modalities)
+    for prop, suffix in PROP_FILE_SUFFIX.items():
+        make_partial_figure(
+            MODELS, r2, exclude, modalities,
+            out_name=f"crossmodal_{suffix}.pdf",
+            prop=prop,
+        )
 
 
 if __name__ == "__main__":

@@ -80,26 +80,46 @@ PAIRS = [
 MKNN_COL = {"jwst": 3, "legacysurvey": 4, "hsc": 5}
 CKA_COL  = {"jwst": 6, "legacysurvey": 7, "hsc": 8}
 
+PROP_XLABEL = {
+    None: r"Mean $R^2$",
+    "sSFR": r"sSFR $R^2$",
+    "mass": r"$M_\ast$ $R^2$",
+    "redshift": r"$z$ $R^2$",
+}
+PROP_FILE_SUFFIX = {
+    "sSFR": "ssfr",
+    "mass": "mass",
+    "redshift": "z",
+}
+
 
 def load_r2_json(path: Path) -> dict:
     with open(path) as f:
         return json.load(f)
 
 
-def r2_for_larger(r2: dict, family: str, large_size: str) -> float:
+def r2_for_larger(
+    r2: dict, family: str, large_size: str, prop: str | None = None
+) -> float:
     try:
         entry = r2["hsc"][family][large_size]
     except KeyError as e:
         raise KeyError(
             f"{family}/{large_size} missing under modality 'hsc' in R² JSON"
         ) from e
-    vals = []
-    for prop in R2_PROPS:
+    if prop is not None:
         if prop not in entry:
             raise KeyError(
                 f"{family}/{large_size} missing property {prop!r} under 'hsc'"
             )
-        vals.append(float(entry[prop]["r2_mean"]))
+        return float(entry[prop]["r2_mean"])
+    vals = []
+    for p in R2_PROPS:
+        if p not in entry:
+            raise KeyError(
+                f"{family}/{large_size} missing property {p!r} under 'hsc'"
+            )
+        vals.append(float(entry[p]["r2_mean"]))
     return float(np.mean(vals))
 
 
@@ -128,9 +148,9 @@ def plot_scatter(
         rho, p_rho = spearmanr(x[finite], y[finite])
         r, p_r = pearsonr(x[finite], y[finite])
         ax.text(
-            0.95, -0.01,
-            f"ρ = {rho:.3f}  (p = {p_rho:.1g})\n",
-            transform=ax.transAxes, va="bottom", ha="right", fontsize=9,
+            0.05, 0.90,
+            f"ρ = {rho:.3f}  (p = {p_rho:.1g})",
+            transform=ax.transAxes, va="top", ha="left", fontsize=9,
             bbox=None,
         )
 
@@ -144,14 +164,13 @@ def plot_scatter(
     ax.set_ylabel(ylabel, fontsize=11)
 
 
-def _make_figure(
+def make_figure(
     pairs: list[tuple],
     r2: dict,
     exclude_families: set[str],
     modalities: tuple[str, ...],
-    col_map: dict[str, int],
-    metric_label: str,
-    out_name: str,
+    out_name: str = "intramodal.pdf",
+    prop: str | None = None,
 ) -> None:
     unknown = exclude_families - set(FAMILY_STYLE)
     if unknown:
@@ -164,40 +183,49 @@ def _make_figure(
     if not kept:
         raise RuntimeError("No pairs left after applying --exclude-families")
 
-    n_panels = len(modalities)
+    metric_rows = [
+        ("MKNN", MKNN_COL),
+        ("CKA",  CKA_COL),
+    ]
+    n_rows = len(metric_rows)
+    n_cols = len(modalities)
+
     fig, axes = plt.subplots(
-        1, n_panels, figsize=(8, 2.0), sharey=True,
+        n_rows, n_cols, figsize=(8, 3.0),
+        sharex=True, #sharey="row",
     )
-    if n_panels == 1:
-        axes = [axes]
 
-    for ax, modality in zip(axes, modalities):
-        col = col_map[modality]
-        xs, ys, fams, szs = [], [], [], []
-        for p in kept:
-            family, small, large = p[0], p[1], p[2]
-            xs.append(float(p[col]) / 100.0)
-            ys.append(r2_for_larger(r2, family, large))
-            fams.append(family)
-            szs.append(f"{small}→{large}")
+    xlabel_str = PROP_XLABEL[prop]
 
-        is_first = ax is axes[0]
+    for row_idx, (metric_label, col_map) in enumerate(metric_rows):
+        for col_idx, modality in enumerate(modalities):
+            ax = axes[row_idx, col_idx]
+            col = col_map[modality]
+            xs, ys, fams, szs = [], [], [], []
+            for p in kept:
+                family, small, large = p[0], p[1], p[2]
+                xs.append(r2_for_larger(r2, family, large, prop=prop))
+                ys.append(float(p[col]) / 100.0)
+                fams.append(family)
+                szs.append(f"{small}→{large}")
 
-        plot_scatter(
-            ax,
-            np.array(xs)*100, np.array(ys),
-            fams, szs,
-            xlabel=f"{MODALITY_LABEL[modality]} [{metric_label} %]",
-            ylabel=(
-                "Mean $R^2$"
-                if is_first else ""
-            ),
-        )
+            is_first_col = col_idx == 0
+            is_last_row = row_idx == n_rows - 1
+
+            plot_scatter(
+                ax,
+                np.array(xs), np.array(ys) * 100,
+                fams, szs,
+                xlabel=xlabel_str if is_last_row else "",
+                ylabel=f"{metric_label} %" if is_first_col else "",
+            )
+            if row_idx == 0:
+                ax.set_title(MODALITY_LABEL[modality], fontsize=11)
 
     seen: dict[str, object] = {}
-    for ax in axes:
-        ax.tick_params(axis="x",direction="in")
-        ax.tick_params(axis="y",direction="in")
+    for ax in axes.flat:
+        ax.tick_params(axis="x", direction="in")
+        ax.tick_params(axis="y", direction="in")
         for h, lab in zip(*ax.get_legend_handles_labels()):
             if lab not in seen:
                 seen[lab] = h
@@ -205,45 +233,17 @@ def _make_figure(
         seen.values(), list(seen.keys()),
         loc="upper center", fontsize=9, ncol=len(seen),
         columnspacing=0.55,
-        bbox_to_anchor=(0.52, 1.08),
+        bbox_to_anchor=(0.52, 1.06),
         handletextpad=0.1,
-        frameon=False
+        frameon=False,
     )
 
     fig.tight_layout()
-    plt.subplots_adjust(wspace=0.05, hspace=0)
+    plt.subplots_adjust(wspace=0.15, hspace=0.08)
     out = FIGS_DIR / out_name
     fig.savefig(out, dpi=300, bbox_inches="tight")
     print(f"Saved {out}")
     plt.close(fig)
-
-
-def make_figure_mknn(
-    pairs: list[tuple],
-    r2: dict,
-    exclude_families: set[str],
-    modalities: tuple[str, ...],
-) -> None:
-    _make_figure(
-        pairs, r2, exclude_families, modalities,
-        col_map=MKNN_COL,
-        metric_label="MKNN",
-        out_name="intramodal.pdf",
-    )
-
-
-def make_figure_cka(
-    pairs: list[tuple],
-    r2: dict,
-    exclude_families: set[str],
-    modalities: tuple[str, ...],
-) -> None:
-    _make_figure(
-        pairs, r2, exclude_families, modalities,
-        col_map=CKA_COL,
-        metric_label="CKA",
-        out_name="intramodal_cka.pdf",
-    )
 
 
 def main():
@@ -270,8 +270,13 @@ def main():
 
     exclude = set(args.exclude_families)
     modalities = tuple(args.modalities)
-    make_figure_mknn(PAIRS, r2, exclude, modalities)
-    make_figure_cka(PAIRS, r2, exclude, modalities)
+    make_figure(PAIRS, r2, exclude, modalities)
+    for prop, suffix in PROP_FILE_SUFFIX.items():
+        make_figure(
+            PAIRS, r2, exclude, modalities,
+            out_name=f"intramodal_{suffix}.pdf",
+            prop=prop,
+        )
 
 
 if __name__ == "__main__":
