@@ -1,128 +1,96 @@
-# The Platonic Universe: Testing The Platonic Representation Hypothesis With Astronomical Data 🔮 💫
+# Platonic Universe — code for "Do Foundation Models See the Same Sky?"
 
-This repository contains the code for testing the **Platonic Representation Hypothesis (PRH)** on astronomical data, as described in our paper "The Platonic Universe: Do Foundation Models See the Same Sky?"
+This repository contains the code and reproduction recipes for the paper
+*The Platonic Universe: Do Foundation Models See the Same Sky?* (under
+double-blind review). It tests the Platonic Representation Hypothesis on
+astronomical foundation models by measuring local (MKNN) and global (CKA)
+representational alignment across architectures and across imaging /
+spectroscopic modalities.
 
-## Background & Motivation
+## Install
 
-The Platonic Representation Hypothesis suggests that neural networks trained with different objectives on different data modalities converge toward a shared statistical model of reality in their representation spaces. As models become larger and are trained on more diverse tasks, they should converge toward a "Platonic ideal" representation of underlying reality.
-
-### Why Astronomy?
-
-Astronomical observations provide an ideal testbed for the PRH because:
-- **Shared Physical Origin**: Different astronomical observations (images, spectra, photometry) all emerge from the same underlying physics
-- **Multiple Modalities**: We can compare representations across fundamentally different data types (like optical images, infrared images, and spectroscopy)
-- **Scale**: Modern astronomical surveys provide the data volume necessary to test convergence across multiple model architectures
-
-Our results (below) show that **larger models exhibit more similar representations**, even when trained across different data modalities. This suggests that astronomical foundation models may be able to leverage pre-trained general-purpose architectures.
-
-<img src="https://github.com/HCVYM5w6Gn/platonic-universe/blob/main/figs/mknn.png" width=100%/>
-
-
-## Installation
-
-1.  **Clone the repository:**
-    ```bash
-    git clone [https://github.com/HCVYM5w6Gn/platonic-universe.git](https://github.com/HCVYM5w6Gn/platonic-universe.git)
-    cd platonic-universe    
-    ```
-
-2.  **Install dependencies using uv:**
-    ```bash
-    pip install uv
-    uv sync
-    ```
-3. **Install the package**
-   ```bash
-   uv pip install .
-   ```
-> To install without uv, you can create a virtual environment and install the requirements manually:
-> ```bash
-> python -m venv pu_env
-> source pu_env/bin/activate
-> pip install .
-> ## or to install with SAM2 support:
-> pip install ".[sam2]"
-
-### Quick Start: Running Experiments
-
-There are two methods to run experiments:
-
-1. **Using platonic_universe CLI:**
-    ```bash
-    platonic_universe run --model vit --mode jwst 
-    ```
-
-2. **Using python pakage directly:**
-    ```python
-    import pu 
-
-    pu.run_experiment("vit", "sdss", batch_size=64, num_workers=1, knn_k=10)
-    ``` 
-
-
-
-### Supported Models & Datasets
-
-**Models Tested:**
-- **Vision Transformers (ViT)**: Base, Large, Huge
-- **DINOv2**: Small, Base, Large, Giant
-- **ConvNeXtv2**: Nano, Tiny, Base, Large
-- **IJEPA**: Huge, Giant
-- **AstroPT**: Astronomy-specific transformer (Small, Base, Large)
-- **Specformer**: Spectroscopy-specific model (Enable by uncommenting relevant lines in 'experiments.py')
-
-**Astronomical Datasets:**
-- **HSC (Hyper Suprime-Cam)**: Ground-based optical imaging (reference baseline)
-- **JWST**: Space-based infrared imaging
-- **Legacy Survey**: Ground-based optical imaging
-- **DESI**: Spectroscopy
-
-### Understanding the Results
-
-The code measures **representational alignment** using the Mutual k-Nearest Neighbour (MKNN) metric:
-
-```python
-from pu.metrics import mknn
-
-# Calculate MKNN score between two embedding sets
-score = mknn(embeddings_1, embeddings_2, k=10)
-print(f"MKNN alignment score: {score:.4f}")
+```
+pip install uv
+uv sync
+uv pip install .
 ```
 
-**Higher MKNN scores** indicate more similar representations between models or modalities.
+Python ≥ 3.11 required.
 
-# Notes on Specformer:
+## Where the data lives
 
-Note: the validation used ConvNeXtv2-Base (facebook/convnextv2-base-22k-224) for the image side. If more validation across other sizes/families is wanted we can run it, but it shouldn't be required — this confirms the SpecFormer adapter produces correct embeddings and the cross-modal MKNN is consistent with the paper.
+All datasets and model checkpoints used by the paper are mirrored on
+Hugging Face under the anonymous account `HCVYM5w6Gn`:
 
-Re: whether platonic_universe run --model specformer --mode desi gives the same result — not directly. That command generates and saves the SpecFormer embeddings to parquet, but since specformer is spectral-only it skips HSC and metric computation. To reproduce this MKNN via the CLI you'd:
+| Repo | Contents |
+|---|---|
+| `HCVYM5w6Gn/jwst_hsc_crossmatched` | HSC × JWST imagery |
+| `HCVYM5w6Gn/legacysurvey_hsc_crossmatched` | HSC × Legacy Survey imagery |
+| `HCVYM5w6Gn/desi_hsc_crossmatched` | HSC × DESI spectra |
+| `HCVYM5w6Gn/sdss_hsc_crossmatched` | HSC × SDSS spectra |
+| `HCVYM5w6Gn/cosmosweb-hsc-jwst-high-snr-pil2` | COSMOS-Web HSC × JWST with physics labels |
+| `HCVYM5w6Gn/specformer_desi` | Pre-computed Specformer embeddings of DESI |
+| `HCVYM5w6Gn/SDSS_Interpolated` | SDSS spectra interpolated to DESI grid |
+| `HCVYM5w6Gn/pu-embeddings` | Per-(model, modality) frozen embeddings |
+| `HCVYM5w6Gn/pu-solve-results` | Per-(survey, model) calibrated CKA + MKNN + shape stats |
+| `HCVYM5w6Gn/pu-umap-results` | Per-block kNN-purity + UMAP coords |
+| `HCVYM5w6Gn/pu-regress-results` | Linear-probe R² per (modality, model, property) |
+| `HCVYM5w6Gn/pu-regress-embeddings` | Final-block embeddings (45k galaxies) |
+| `HCVYM5w6Gn/astroPT_v2.0` (model) | AstroPT v2 checkpoints |
 
-    platonic_universe run --model specformer --mode desi → fresh specformer embeddings
-    platonic_universe run --model convnext --mode desi → ConvNeXtv2 HSC embeddings (+ pre-computed DESI embeddings from HCVYM5w6Gn/specformer_desi)
-    platonic_universe compare <specformer_parquet> --ref <convnext_parquet> --mode desi
+`HF_TOKEN` is **not** required — every mirror is public.
 
-Step 2 already produces an MKNN using the pre-computed specformer embeddings from HuggingFace, so that's the quickest way to sanity-check. The validation script above computes embeddings fresh end-to-end as an independent check.
+## Reproducing the paper's figures
 
-## Contributing
+The paper's main and appendix figures are produced by the scripts under
+`scripts/` from a single committed input file
+(`r2_vs_params_45000galaxies_upsampled.json`) plus a small Procrustes
+distances pickle. The pickle is regenerable end-to-end from the HF
+mirrors above:
 
-This project is open source under the AGPLv3.
-
-We welcome contributions! Please feel free to open a pull request to:
-- Add support for new model architectures
-- Include additional astronomical datasets
-- Implement alternative similarity metrics
-- Improve preprocessing pipelines
-
-We also hang out on the UTBD Discord, [so feel free to reach out there!](https://discord.gg/VQvUSWxnu9)
-
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@article{anon2026,
-	author = {{Anonymous}},
-	title = {{The Platonic Universe: Do Foundation Models See the Same Sky?}},
-	note = {Under review.}
-}
 ```
+# Stream-convert the cosmosweb embedding parquets to .npy
+python experiments/cosmosweb/stream_embeddings_to_npy.py
+
+# Fit linear probes + Procrustes distances + cosine-similarity figures
+python experiments/cosmosweb/probe_weight_analysis.py
+
+# Render every paper figure that depends on the pickle
+python scripts/plot_crossarchitectural_procrustes.py
+python scripts/plot_crossmodal_procrustes.py
+python scripts/plot_crossmodal_procrustes_per_property.py
+```
+
+The MKNN/CKA-based figures (`intramodal*.pdf`, `crossmodal*.pdf`,
+`crossarchitectural.pdf`) read directly from
+`r2_vs_params_45000galaxies_upsampled.json` plus the per-(survey, model)
+parquets pulled from `HCVYM5w6Gn/pu-solve-results` — no extraction
+needed:
+
+```
+python scripts/plot_r2_vs_params.py
+python scripts/plot_intramodal.py
+python scripts/plot_crossmodal.py
+```
+
+End-to-end reproduction details, including the bandwidth-bounded
+streaming protocol used to convert ~30 GB of cosmosweb parquets to
+`.npy`, are documented in
+[`experiments/cosmosweb/PROCRUSTES_PIPELINE.md`](experiments/cosmosweb/PROCRUSTES_PIPELINE.md).
+
+## Layout
+
+```
+src/pu/                        package: model adapters, dataset adapters,
+                                metric implementations, CLI
+experiments/cosmosweb/          cosmosweb embedding extraction + probe
+                                analysis pipeline
+experiments/platonic/           crossmatched-survey solve / UMAP pipeline
+scripts/                        plotting scripts that produce the paper's
+                                main and appendix figures
+tests/                          unit tests
+```
+
+## License
+
+AGPLv3.
