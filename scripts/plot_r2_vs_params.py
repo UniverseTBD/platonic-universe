@@ -179,7 +179,7 @@ def make_figure(
 
     n_panels = len(modalities)
     fig, axes = plt.subplots(
-        1, n_panels, figsize=(6, 2.5), sharey=False,
+        1, n_panels, figsize=(6, 2.2), sharey=False,
     )
     if n_panels == 1:
         axes = [axes]
@@ -205,9 +205,10 @@ def make_figure(
             ax,
             np.array(xs), np.array(ys),
             fams, szs,
-            xlabel=f"{MODALITY_LABEL[modality]} [Parameters]",
+            xlabel="Parameters",
             ylabel=("Mean $R^2$" if is_first else ""),
         )
+        ax.set_title(MODALITY_LABEL[modality], fontsize=11)
 
     seen: dict[str, object] = {}
     for ax in axes:
@@ -222,7 +223,7 @@ def make_figure(
         seen.values(), list(seen.keys()),
         loc="upper center", fontsize=9, ncol=len(seen)//2,
         columnspacing=0.55,
-        bbox_to_anchor=(0.52, 1.15),
+        bbox_to_anchor=(0.52, 1.18),
         handletextpad=0.1,
         frameon=False
     )

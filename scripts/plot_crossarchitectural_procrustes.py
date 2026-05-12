@@ -201,31 +201,31 @@ def make_figure(
             f"Valid: {sorted(FAMILY_STYLE)}"
         )
 
-    n_rows = len(modalities)
+    n_cols = len(modalities)
     fig, axes = plt.subplots(
-        n_rows, 2, figsize=(4.5, 2.0 * n_rows), sharey="row"
+        2, n_cols, figsize=(2.25 * n_cols, 4.0),
     )
-    if n_rows == 1:
-        axes = np.array([axes])
+    axes = np.array(axes).reshape(2, -1)
 
-    for row, modality in enumerate(modalities):
+    for col, modality in enumerate(modalities):
         params, r2_vals, dists, fams = collect_points(
             procrustes, r2, modality, exclude_families,
         )
 
-        ax_params, ax_r2 = axes[row]
+        ax_params, ax_r2 = axes[0, col], axes[1, col]
         plot_scatter(
             ax_params, params, dists, fams,
-            xlabel=f"{MODALITY_LABEL[modality]} [Parameters]",
-            ylabel="$d_{proc}$",
+            xlabel="Parameters",
+            ylabel=("$d_{proc}$" if col == 0 else ""),
             log_x=True,
         )
         plot_scatter(
             ax_r2, r2_vals, dists, fams,
-            xlabel=f"{MODALITY_LABEL[modality]} [Mean $R^2$]",
-            ylabel="",
+            xlabel="Mean $R^2$",
+            ylabel=("$d_{proc}$" if col == 0 else ""),
             log_x=False,
         )
+        ax_params.set_title(MODALITY_LABEL[modality], fontsize=11)
 
     seen: dict[str, object] = {}
     for ax in axes.ravel():

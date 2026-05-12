@@ -125,11 +125,10 @@ def make_figure(
                     fams.append(family)
             plot_panel(ax, np.array(xs), np.array(ys), fams)
 
+            if i == 0:
+                ax.set_title(MODALITY_LABEL[modality], fontsize=11)
             if i == n_rows - 1:
-                ax.set_xlabel(
-                    f"{MODALITY_LABEL[modality]} [Parameters]",
-                    fontsize=10,
-                )
+                ax.set_xlabel("Parameters", fontsize=10)
             if j == 0:
                 ax.set_ylabel(
                     rf"{PROP_LABEL[prop]} $[R^2]$ ", fontsize=10,

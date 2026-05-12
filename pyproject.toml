@@ -24,6 +24,7 @@ dependencies = [
     "huggingface-hub>=0.20.0",
     "scikit-misc>=0.5.2",
     "statsmodels>=0.14.6",
+    "pingouin>=0.6.1",
 ]
 
 [project.optional-dependencies]
