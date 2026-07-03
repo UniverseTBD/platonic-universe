@@ -27,6 +27,12 @@ Env
   PU_EXTRACT_N      rows to extract         (default 45000, streaming order)
   PU_EXTRACT_BATCH  batch size              (default 32)
   PU_EXTRACT_LIMIT  cap rows for a smoke test of columns/shapes (0 = off)
+  PU_EXTRACT_START  skip this many leading streamed rows (default 0); with
+                    PU_EXTRACT_COUNT this carves a contiguous shard so several
+                    GPUs can each extract a slice in parallel and be concatenated
+                    back in global row order (row START+i of the catalog == row i
+                    of this shard). Skip is applied before preprocessing.
+  PU_EXTRACT_COUNT  rows to take after START (default = PU_EXTRACT_N)
   PU_EXTRACT_OUT    output parquet
 """
 from __future__ import annotations
@@ -43,6 +49,13 @@ import polars as pl
 import torch
 from datasets import load_dataset
 from torch.utils.data import DataLoader
+
+# GH200 (sm_90) + this torch/cuDNN build: the cuDNN SDPA attention backend fails
+# to build a kernel plan ("cuDNN Frontend error: No valid execution plans built")
+# inside SigLIP/Gemma attention. Disable just that backend so
+# scaled_dot_product_attention falls back to flash / mem-efficient / math.
+if torch.cuda.is_available():
+    torch.backends.cuda.enable_cudnn_sdp(False)
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -85,11 +98,13 @@ def main() -> int:
     N = int(os.environ.get("PU_EXTRACT_N", "45000"))
     bs = int(os.environ.get("PU_EXTRACT_BATCH", "32"))
     limit = int(os.environ.get("PU_EXTRACT_LIMIT", "0"))
-    n_take = limit if limit > 0 else N
+    start = int(os.environ.get("PU_EXTRACT_START", "0"))
+    count = int(os.environ.get("PU_EXTRACT_COUNT", str(N)))
+    n_take = limit if limit > 0 else count
     out = Path(os.environ.get(
         "PU_EXTRACT_OUT",
         str(ROOT / "data" / "cosmosweb" / f"{alias}_{size}_blocks_layerwise_ordered.parquet")))
-    log(f"model={alias} {hfid} size={size} N={n_take} bs={bs} "
+    log(f"model={alias} {hfid} size={size} start={start} n_take={n_take} bs={bs} "
         f"cuda={torch.cuda.is_available()} out={out}")
 
     from pu.models import get_adapter
@@ -107,7 +122,15 @@ def main() -> int:
     ds = (
         load_dataset(DATASET, split="train", streaming=True)
         .select_columns([f"{m}_images" for m in MODES])
-        .map(proc)
+    )
+    # Contiguous shard: skip leading rows *before* preprocessing so skipped rows
+    # are only decoded, not run through the HF processor. Row START+i of the
+    # catalog becomes row i of this shard, so concatenating shards in START order
+    # reproduces global catalog order.
+    if start > 0:
+        ds = ds.skip(start)
+    ds = (
+        ds.map(proc)
         .remove_columns([f"{m}_images" for m in MODES])
         .select_columns(list(MODES))
     )
