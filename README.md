@@ -71,6 +71,19 @@ There are two methods to run experiments:
 - **AstroPT**: Astronomy-specific transformer (Small, Base, Large)
 - **Specformer**: Spectroscopy-specific model (Enable by uncommenting relevant lines in 'experiments.py')
 
+**Time-series foundation models** (modality: 1D signals / light curves):
+- **Chronos** (`amazon/chronos-t5-*`, `amazon/chronos-bolt-*`): Amazon time-series foundation models
+- **MOMENT** (`AutonLab/MOMENT-1-*`): masked time-series transformer
+
+These plug into the same layer-wise extraction path as the vision models. See
+[`experiments/timeseries/`](experiments/timeseries/) for the API contract and a
+cross-model layer-wise MKNN harness that runs on dummy data (CPU-only):
+
+```bash
+pip install ".[timeseries]"
+python scripts/timeseries_layerwise_mknn.py
+```
+
 **Astronomical Datasets:**
 - **HSC (Hyper Suprime-Cam)**: Ground-based optical imaging (reference baseline)
 - **JWST**: Space-based infrared imaging

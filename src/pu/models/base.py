@@ -1,8 +1,8 @@
+import random
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import numpy as np
-import random
 import torch
 import torch.nn as nn
 
@@ -20,6 +20,54 @@ def set_seed(seed: int = 42):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def resolve_device(prefer: str = "cuda") -> str:
+    """Return an available torch device string.
+
+    Adapters should call this instead of hardcoding ``"cuda"`` so they also run
+    (and can be smoke-tested) on CPU-only machines. Apple ``mps`` is not used by
+    default because several ops fall back non-deterministically; pass
+    ``prefer="mps"`` to opt in.
+
+    Args:
+        prefer: Preferred device family ("cuda", "mps", or "cpu").
+
+    Returns:
+        "cuda", "mps", or "cpu".
+    """
+    if prefer == "cuda" and torch.cuda.is_available():
+        return "cuda"
+    if prefer == "mps" and getattr(torch.backends, "mps", None) is not None \
+            and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def set_deterministic(seed: int = 42) -> None:
+    """Seed everything and request deterministic kernels.
+
+    Determinism caveat that bit us during PRH revision: seeding alone is not
+    enough. Non-associative float reductions (multi-threaded BLAS) can perturb
+    activations at the 1e-6 level, which is enough to flip *near-tied* cosine
+    neighbours in MKNN. This helper additionally:
+
+    - turns on deterministic algorithms (``warn_only`` so unsupported ops fall
+      back instead of raising),
+    - disables cuDNN autotuning,
+    - forces single-threaded CPU math so runs are bit-reproducible.
+
+    MKNN is also row-order sensitive: row ``i`` of the two embedding matrices
+    must be the *same* series. Preserve draw order (``num_workers=0`` for paired
+    modes) when wiring in real data.
+    """
+    set_seed(seed)
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    if torch.cuda.is_available():
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    # Single-threaded CPU math removes the last source of run-to-run drift.
+    torch.set_num_threads(1)
 
 
 class ModelAdapter(ABC):
