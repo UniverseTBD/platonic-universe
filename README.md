@@ -75,6 +75,7 @@ There are two methods to run experiments:
 - **Chronos** (`amazon/chronos-t5-*`, `amazon/chronos-bolt-*`): Amazon time-series foundation models
 - **MOMENT** (`AutonLab/MOMENT-1-*`): masked time-series transformer
 - **PatchTST** / **PatchTSMixer** (`ibm-granite/granite-timeseries-*`): transformers-native, no extra dependency
+- **Moirai** (`Salesforce/moirai-1.0-R-*`): masked-encoder any-variate model (`pip install ".[moirai]"`)
 
 These plug into the same layer-wise extraction path as the vision models. See
 [`experiments/timeseries/`](experiments/timeseries/) for the API contract and a
