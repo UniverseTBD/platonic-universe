@@ -74,6 +74,7 @@ There are two methods to run experiments:
 **Time-series foundation models** (modality: 1D signals / light curves):
 - **Chronos** (`amazon/chronos-t5-*`, `amazon/chronos-bolt-*`): Amazon time-series foundation models
 - **MOMENT** (`AutonLab/MOMENT-1-*`): masked time-series transformer
+- **PatchTST** / **PatchTSMixer** (`ibm-granite/granite-timeseries-*`): transformers-native, no extra dependency
 
 These plug into the same layer-wise extraction path as the vision models. See
 [`experiments/timeseries/`](experiments/timeseries/) for the API contract and a

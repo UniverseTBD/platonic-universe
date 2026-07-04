@@ -10,4 +10,5 @@ from . import specformer
 from . import timeseries
 from . import spender
 from . import tabular
+from . import patchts
 __all__ = ["get_adapter", "register_adapter", "list_adapters"]

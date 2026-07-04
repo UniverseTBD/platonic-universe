@@ -52,10 +52,21 @@ def make_dummy_batch(n: int, seq_len: int, n_proto: int = 8, seed: int = 0) -> t
 
 
 def extract_layers(adapter, batch: torch.Tensor, granularity: str = "blocks"):
-    """Return an ordered {layer_name: (n, d) numpy array} for one model."""
+    """Return an ordered {layer_name: (n, d) numpy array} for one model.
+
+    Layers whose row count is not the batch size are dropped: some models (e.g.
+    PatchTST) expose internal modules that flatten the channel dim into the
+    batch dim (B*C rows), which MKNN cannot compare row-to-row. This mirrors the
+    row-count filtering in experiments_layerwise.py.
+    """
+    n = batch.shape[0]
     with torch.no_grad():
         layers = adapter.embed_all_layers_for_mode({"lc": batch}, "lc", granularity=granularity)
-    return {name: z.detach().cpu().numpy() for name, z in layers.items()}
+    return {
+        name: z.detach().cpu().numpy()
+        for name, z in layers.items()
+        if z.shape[0] == n
+    }
 
 
 def check_determinism(adapter, batch: torch.Tensor, granularity: str, k: int) -> dict:
