@@ -33,6 +33,8 @@ aion = ["polymathic-aion"]
 timeseries = ["chronos-forecasting>=1.4.0"]
 # Spectra foundation model. Spender loads weights via torch.hub, not HuggingFace.
 spectra = ["spender>=0.3"]
+# Tabular foundation model. TabPFN weights are gated on HuggingFace (accept terms).
+tabular = ["tabpfn>=2.0", "tabpfn-extensions"]
 cosmosweb = [
     "matplotlib>=3.9.0",
     "tqdm>=4.66.0",

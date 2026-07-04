@@ -87,6 +87,9 @@ python scripts/timeseries_layerwise_mknn.py
 **Spectra foundation models** (modality: galaxy spectra), alongside Specformer:
 - **Spender** (`pip install ".[spectra]"`): SDSS galaxy-spectrum autoencoder (`spender` hub tag `sdss_II`)
 
+**Tabular foundation models** (modality: catalogue rows, e.g. `Smith42/galaxies`):
+- **TabPFN** (`pip install ".[tabular]"`): in-context tabular transformer (weights gated on HuggingFace)
+
 **Astronomical Datasets:**
 - **HSC (Hyper Suprime-Cam)**: Ground-based optical imaging (reference baseline)
 - **JWST**: Space-based infrared imaging
