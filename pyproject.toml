@@ -31,6 +31,8 @@ aion = ["polymathic-aion"]
 # repo's modern transformers. MOMENT (momentfm) pins transformers==4.33.3 and
 # must be installed in a dedicated environment (see pu.models.timeseries).
 timeseries = ["chronos-forecasting>=1.4.0"]
+# Spectra foundation model. Spender loads weights via torch.hub, not HuggingFace.
+spectra = ["spender>=0.3"]
 cosmosweb = [
     "matplotlib>=3.9.0",
     "tqdm>=4.66.0",

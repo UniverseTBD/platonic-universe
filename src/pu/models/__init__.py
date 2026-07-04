@@ -8,4 +8,5 @@ from . import astropt
 from . import aion
 from . import specformer
 from . import timeseries
+from . import spender
 __all__ = ["get_adapter", "register_adapter", "list_adapters"]

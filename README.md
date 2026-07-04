@@ -84,6 +84,9 @@ pip install ".[timeseries]"
 python scripts/timeseries_layerwise_mknn.py
 ```
 
+**Spectra foundation models** (modality: galaxy spectra), alongside Specformer:
+- **Spender** (`pip install ".[spectra]"`): SDSS galaxy-spectrum autoencoder (`spender` hub tag `sdss_II`)
+
 **Astronomical Datasets:**
 - **HSC (Hyper Suprime-Cam)**: Ground-based optical imaging (reference baseline)
 - **JWST**: Space-based infrared imaging
