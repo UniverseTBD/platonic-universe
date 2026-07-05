@@ -27,6 +27,17 @@ dependencies = [
 [project.optional-dependencies]
 sam2 = ["sam-2 @ git+https://github.com/facebookresearch/sam2.git"]
 aion = ["polymathic-aion"]
+# Time-series foundation models. chronos-forecasting is compatible with this
+# repo's modern transformers. MOMENT (momentfm) pins transformers==4.33.3 and
+# must be installed in a dedicated environment (see pu.models.timeseries).
+timeseries = ["chronos-forecasting>=1.4.0"]
+# Moirai (Salesforce) time-series foundation model. PatchTST / PatchTSMixer need
+# no extra: they ship inside the pinned transformers.
+moirai = ["uni2ts>=1.1.0"]
+# Spectra foundation model. Spender loads weights via torch.hub, not HuggingFace.
+spectra = ["spender>=0.3"]
+# Tabular foundation model. TabPFN weights are gated on HuggingFace (accept terms).
+tabular = ["tabpfn>=2.0", "tabpfn-extensions"]
 cosmosweb = [
     "matplotlib>=3.9.0",
     "tqdm>=4.66.0",
@@ -79,3 +90,6 @@ allow-direct-references = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "slow: end-to-end tests that download real model weights (opt in with PU_RUN_SLOW=1)",
+]
