@@ -45,7 +45,11 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 DATA_DIR = ROOT / "data"
 
-PROPERTIES = ("redshift", "mass", "sSFR")
+# Probed physics labels; override with PU_LAYERWISE_PROPS (comma-separated) to
+# add scramble tell-tales like mag_r (a vision backbone -> R2~=0.9 if aligned).
+PROPERTIES = tuple(
+    p.strip() for p in os.environ.get(
+        "PU_LAYERWISE_PROPS", "redshift,mass,sSFR").split(",") if p.strip())
 
 
 def _load_step1():
@@ -74,10 +78,12 @@ def parse_col(col: str) -> dict | None:
     """Parse an embedding column name into layer metadata, or None to skip.
 
     Keys on substrings so minor naming drift is tolerated:
-      ...vision_tower...layers.{i}   -> vision  (order i)
-      ...language_model.layers.{i}   -> llm     (order 1000+i, after vision)
-      hidden_states_last / embeddings-> final   (order 2000, the published point)
-      lm_head / anything else        -> skip
+      ...vision_tower...layers.{i}   -> vision   (order i)
+      ...language_model.layers.{i}   -> llm      (order 1000+i, after vision)
+      ...layer[s].{i} (single-stack) -> backbone (order i; dinov3/convnext/etc.)
+      hidden_states_last / embeddings-> final    (order 2000, the published point)
+      last_hidden_state              -> final    (order 1999, non-published)
+      lm_head / norm / anything else -> skip
     """
     for mod in ("hsc", "jwst"):
         if col.endswith("_" + mod):
@@ -96,10 +102,19 @@ def parse_col(col: str) -> dict | None:
         i = int(m.group(1))
         return dict(modality=mod, stack="llm", layer_index=i,
                     order=1000 + i, is_published=False, col=col)
+    # Single-stack backbones (dinov3/convnext/vit/…): "model.layer.{i}".
+    m = re.search(r"\.layers?\.(\d+)$", base)
+    if m:
+        i = int(m.group(1))
+        return dict(modality=mod, stack="backbone", layer_index=i,
+                    order=i, is_published=False, col=col)
     if "hidden_states_last" in base or base == "embeddings":
         return dict(modality=mod, stack="final", layer_index=-1,
                     order=2000, is_published=True, col=col)
-    return None  # lm_head (pathological d) or unknown -> drop
+    if base == "last_hidden_state":
+        return dict(modality=mod, stack="final", layer_index=-1,
+                    order=1999, is_published=False, col=col)
+    return None  # lm_head (pathological d), norm, or unknown -> drop
 
 
 def read_matrix(path: str, col: str) -> np.ndarray:

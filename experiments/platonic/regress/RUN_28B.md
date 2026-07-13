@@ -128,3 +128,17 @@ PU_LAYERWISE_OUTPUT=/tmp/sanity28b.parquet \
 - Plot (`scripts/plot_paligemma_layerwise.py`): `PU_PLOT_INPUT`, `PU_PLOT_MODEL`
   (title, e.g. `"PaliGemma 2 (28B)"`), `PU_PLOT_OUT`, `PU_PLOT_PAPER` (`3b`/`10b`/
   `28b` for the dotted Table-4 refs; `""` = none).
+
+## ⚠️ The `kshitijd/platonic-embeddings` cosmosweb basket is ALSO scrambled
+
+Spot-checked the smallest model (`dinov3_vits16`, 1.09 GB) from
+`kshitijd/platonic-embeddings/cosmosweb/*_blocks_layerwise.parquet` with
+`04_layerwise_probe.py` (`PU_LAYERWISE_PROPS=mag_r,redshift,mass,sSFR`).
+**Every layer × property × modality reads the `-d/n` floor** (best R² anywhere
+= **−0.001**; `mag_r` should be ≈0.9 on a vision backbone). Same globally
+row-shuffled bug PaliGemma had before the `num_workers=0` re-extract — so the
+whole HF basket is suspect, not just PaliGemma. To trust any of these models,
+re-extract in row order (`00_extract_cosmosweb_layerwise.py`) or have them
+re-uploaded. Result parquet: `data/dinov3_vits16_cosmosweb_layerwise_probe.parquet`.
+(`04_layerwise_probe.py::parse_col` now also parses single-stack `model.layer.N`
+/ `last_hidden_state` columns, so it works on any of these non-PaliGemma models.)
