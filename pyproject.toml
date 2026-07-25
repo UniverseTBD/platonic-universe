@@ -38,6 +38,10 @@ moirai = ["uni2ts>=1.1.0"]
 spectra = ["spender>=0.3"]
 # Tabular foundation model. TabPFN weights are gated on HuggingFace (accept terms).
 tabular = ["tabpfn>=2.0", "tabpfn-extensions"]
+# Light-curve feature extractor (Malanchev et al. 2021). Rust-backed, no weights,
+# no network, CPU-only — the deterministic classical baseline for the light-curve
+# modality, verified end-to-end in CI.
+lightcurve = ["light-curve>=0.9"]
 cosmosweb = [
     "matplotlib>=3.9.0",
     "tqdm>=4.66.0",
