@@ -38,17 +38,7 @@ moirai = ["uni2ts>=1.1.0"]
 spectra = ["spender>=0.3"]
 # Tabular foundation model. TabPFN weights are gated on HuggingFace (accept terms).
 tabular = ["tabpfn>=2.0", "tabpfn-extensions"]
-# Triple co-location analysis (Experiment 2). The core primitives in
-# pu.metrics.colocation only need numpy + scikit-learn (already core deps); this
-# extra adds the notebook stack. dadapy is an OPTIONAL backend and is left out on
-# purpose: its Cython extension does not build against numpy>=2 (this repo pins
-# numpy>=2.3), so the pure-numpy overlap path is the default. To use the dadapy
-# backend, install dadapy in a separate numpy<2 environment.
-colocation = [
-    "matplotlib>=3.9.0",
-    "jupyter>=1.0.0",
-    "nbformat>=5.9.0",
-]
+analysis = ["matplotlib>=3.9.0", "jupyter>=1.0.0", "nbformat>=5.9.0"]
 cosmosweb = [
     "matplotlib>=3.9.0",
     "tqdm>=4.66.0",
