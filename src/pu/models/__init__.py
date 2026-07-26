@@ -12,4 +12,5 @@ from . import spender
 from . import tabular
 from . import patchts
 from . import moirai
+from . import lightcurve
 __all__ = ["get_adapter", "register_adapter", "list_adapters"]
