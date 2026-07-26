@@ -11,8 +11,6 @@ import numpy as np
 from numpy.typing import NDArray
 from typing import Callable
 
-import torch
-
 from pu.metrics._base import validate_inputs
 
 
@@ -41,6 +39,7 @@ def calibrate(
         >>> calibrate(Z1, Z2, cka)
     """
     try:
+        import torch
         from calibrated_similarity import calibrate as cs_calibrate
     except ImportError as e:
         raise ImportError(
