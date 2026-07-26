@@ -4,7 +4,13 @@ from .registry import get_adapter, register_adapter, list_adapters
 # This keeps registry population implicit and backwards-compatible.
 # The imports are intentionally unused here; they only trigger registration.
 from . import hf
-from . import astropt 
-from . import sam2
-
+from . import astropt
+from . import aion
+from . import specformer
+from . import timeseries
+from . import spender
+from . import tabular
+from . import patchts
+from . import moirai
+from . import lightcurve
 __all__ = ["get_adapter", "register_adapter", "list_adapters"]

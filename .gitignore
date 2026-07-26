@@ -211,6 +211,4 @@ __marimo__/
 *.swp
 *.swo
 
-#exclude test files (will set properly later)
-tests/
 data/
