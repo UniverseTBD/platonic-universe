@@ -51,6 +51,9 @@ from pu.metrics.physics import (
 # Calibration
 from pu.metrics.calibration import calibrate
 
+# Deconfounding / confound residualization
+from pu.metrics.deconfound import residualize, residualize_crossfit, confound_basis
+
 # I/O and batch comparison
 from pu.metrics.io import (
     list_metrics,
@@ -112,6 +115,10 @@ __all__ = [
     "PROPERTY_GROUPS",
     # Calibration
     "calibrate",
+    # Deconfounding
+    "residualize",
+    "residualize_crossfit",
+    "confound_basis",
     # I/O
     "list_metrics",
     "compare",
