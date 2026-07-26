@@ -38,6 +38,10 @@ moirai = ["uni2ts>=1.1.0"]
 spectra = ["spender>=0.3"]
 # Tabular foundation model. TabPFN weights are gated on HuggingFace (accept terms).
 tabular = ["tabpfn>=2.0", "tabpfn-extensions"]
+# Concept-LDA analysis (pu.analysis.concept_lda) + its tutorial notebook. Core
+# numerics use numpy/scipy/scikit-learn (already dependencies); matplotlib is for
+# the notebook figures, jupyter to run it.
+analysis = ["matplotlib>=3.9.0", "jupyter>=1.0.0"]
 cosmosweb = [
     "matplotlib>=3.9.0",
     "tqdm>=4.66.0",
