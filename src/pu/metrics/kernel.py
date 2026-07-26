@@ -164,5 +164,7 @@ def compute_cka_mmap(file1: str, file2: str, n_rows: int, n_cols: int) -> float:
         return pu_cka.compute_cka(file1, file2, n_rows, n_cols)
     except ImportError as e:
         raise ImportError(
-            "C++ CKA extension (pu_cka) not found. Build with cmake or install the package."
+            "C++ CKA extension (pu_cka) not found. On macOS, install libomp "
+            "(`brew install libomp`) and reinstall the package; on Linux, ensure "
+            "OpenMP is available at build time."
         ) from e
