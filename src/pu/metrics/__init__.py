@@ -51,6 +51,27 @@ from pu.metrics.physics import (
 # Calibration
 from pu.metrics.calibration import calibrate
 
+# Triple co-location primitives (Experiment 2)
+from pu.metrics.colocation import (
+    l2_normalize_rows,
+    knn_indices,
+    overlap,
+    calibrate_overlap_graphs,
+    cross_layer_matrix,
+    l_conv_from_pairs,
+    physics_overlap_curve,
+    probe_r2_curve,
+    cca_curve,
+    twonn_dimension,
+    intrinsic_dimension_curve,
+    manifold_layer,
+    relative_depth,
+    iqr,
+    bootstrap_depth,
+    colocation_test,
+    summarize_colocation,
+)
+
 # I/O and batch comparison
 from pu.metrics.io import (
     list_metrics,
@@ -112,6 +133,24 @@ __all__ = [
     "PROPERTY_GROUPS",
     # Calibration
     "calibrate",
+    # Triple co-location (Experiment 2)
+    "l2_normalize_rows",
+    "knn_indices",
+    "overlap",
+    "calibrate_overlap_graphs",
+    "cross_layer_matrix",
+    "l_conv_from_pairs",
+    "physics_overlap_curve",
+    "probe_r2_curve",
+    "cca_curve",
+    "twonn_dimension",
+    "intrinsic_dimension_curve",
+    "manifold_layer",
+    "relative_depth",
+    "iqr",
+    "bootstrap_depth",
+    "colocation_test",
+    "summarize_colocation",
     # I/O
     "list_metrics",
     "compare",
