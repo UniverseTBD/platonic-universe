@@ -1,5 +1,5 @@
 """
-Dataset adapter for Smith42/galaxies (v2.0).
+Dataset adapter for <anon>/galaxies (v2.0).
 
 This adapter loads galaxy images with their bundled metadata for physics
 validation tests.  Unlike the crossmatched adapters (which compare two
@@ -7,7 +7,7 @@ modalities), this one provides single-modality images plus physical
 property labels.
 
 Usage with the v2.0 revision which includes metadata columns directly:
-    galaxies = load_dataset("Smith42/galaxies", revision="v2.0", streaming=True)
+    galaxies = load_dataset("<anon>/galaxies", revision="v2.0", streaming=True)
 """
 
 from typing import Callable, Iterable
@@ -19,7 +19,7 @@ from pu.pu_datasets.registry import register_dataset
 
 
 # Metadata columns that we want to keep through the pipeline for physics tests.
-# These are the columns from Smith42/galaxies_metadata that ship with v2.0.
+# These are the columns from <anon>/galaxies_metadata that ship with v2.0.
 METADATA_COLUMNS = [
     "dr8_id",
     # Morphology
@@ -64,7 +64,7 @@ METADATA_COLUMNS = [
 
 
 class GalaxiesAdapter(DatasetAdapter):
-    """Adapter for Smith42/galaxies v2.0 with bundled metadata."""
+    """Adapter for <anon>/galaxies v2.0 with bundled metadata."""
 
     def load(self) -> None:
         return None

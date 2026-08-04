@@ -15,7 +15,7 @@ class SDSSAdapter(DatasetAdapter):
             concatenate_datasets(
                 (
                     load_dataset(self.hf_ds, split="train", streaming=True),
-                    load_dataset("Shashwat20/SDSS_Interpolated", split="train", streaming=True),
+                    load_dataset("<anon>/SDSS_Interpolated", split="train", streaming=True),
                 ),
                 axis=1,
             )

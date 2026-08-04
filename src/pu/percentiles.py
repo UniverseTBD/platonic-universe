@@ -61,7 +61,7 @@ def compute_percentiles(max_samples=10000, resize_mode="match", output_path="dat
     # --- HSC + Legacy Survey ---
     print(f"Loading legacysurvey_hsc_crossmatched (up to {max_samples} samples)...")
     ds = (
-        load_dataset("Smith42/legacysurvey_hsc_crossmatched", split="train", streaming=True)
+        load_dataset("<anon>/legacysurvey_hsc_crossmatched", split="train", streaming=True)
         .select_columns(["hsc_image", "legacysurvey_image"])
         .take(max_samples)
     )
@@ -85,7 +85,7 @@ def compute_percentiles(max_samples=10000, resize_mode="match", output_path="dat
     # --- JWST ---
     print(f"\nLoading jwst_hsc_crossmatched (up to {max_samples} samples)...")
     ds = (
-        load_dataset("Smith42/jwst_hsc_crossmatched", split="train", streaming=True)
+        load_dataset("<anon>/jwst_hsc_crossmatched", split="train", streaming=True)
         .select_columns(["jwst_image"])
     )
 

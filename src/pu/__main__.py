@@ -44,7 +44,7 @@ def main():
     # Subparser for physics validation tests
     parser_physics = subparsers.add_parser(
         "run-physics",
-        help="Test whether embeddings encode physical galaxy properties using Smith42/galaxies.",
+        help="Test whether embeddings encode physical galaxy properties using <anon>/galaxies.",
     )
     parser_physics.add_argument(
         "--model", required=True,

@@ -66,7 +66,7 @@ MODEL_MAP = {
     ),
     "astropt": (
         ["015M", "095M", "850M"],
-        ["Smith42/astroPT_v2.0" for _ in range(3)],
+        ["<anon>/astroPT_v2.0" for _ in range(3)],
     ),
     "vit-mae": (
         ["base", "large", "huge"],
@@ -134,7 +134,7 @@ def extract_all_layers(
         return
 
     modes = ["hsc", comp_mode]
-    hf_ds = f"Smith42/{comp_mode}_hsc_crossmatched"
+    hf_ds = f"<anon>/{comp_mode}_hsc_crossmatched"
 
     def filterfun(idx):
         if "jwst" != comp_mode:

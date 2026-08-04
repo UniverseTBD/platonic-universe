@@ -33,9 +33,9 @@ from sklearn.metrics import r2_score
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 N_GALAXIES = 45000
-DATASET    = "Ashodkh/cosmosweb-hsc-jwst-high-snr-pil2"
+DATASET    = "<anon>/cosmosweb-hsc-jwst-high-snr-pil2"
 BATCH_SIZE = 128
-OUT_DIR    = "/pscratch/sd/a/ashodkh/platonic_universe"
+OUT_DIR    = "/scratch/<user>/platonic_universe"
 MODELS     = {
     "nano":  "facebook/convnextv2-nano-22k-224",
     "tiny":  "facebook/convnextv2-tiny-22k-224",
