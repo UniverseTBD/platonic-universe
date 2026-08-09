@@ -221,6 +221,13 @@ class VLMAdapter(HFAdapter):
         "llava_ov":     "<image>",
     }
 
+    # Unimodal baseline prompts for 3 pass design to check modality dominance.
+    # Not model-specific chat templates; exsist only to give
+    # the processor a well-formed prompt with (image-only) or without
+    # (text-only) the "<image>" placeholder.
+    _IMAGE_ONLY_PROMPT = "<image>"
+    _TEXT_ONLY_PROMPT = "Describe what you see."
+
     def load(self, compile_model: bool = False) -> None:
         self.processor = AutoProcessor.from_pretrained(self.model_name)
         self.model = AutoModelForImageTextToText.from_pretrained(
@@ -239,14 +246,18 @@ class VLMAdapter(HFAdapter):
 
     def get_layer_names(self, granularity: str = "blocks") -> list:
         names = super(HFAdapter, self).get_layer_names(granularity=granularity)
-        names.append("hidden_states_last")
+        names.append("hidden_states_last")  # fused, full-sequence pooled (fused_unmasked)
+        names.append("fused_image_masked")
+        names.append("fused_text_masked")
+        names.append("image_only_unimodal")
+        names.append("text_only_unimodal")
         return names
 
     def get_preprocessor(self, modes: Iterable[str], resize: bool = True, resize_mode: str = "match"):
         # PreprocessHF works with AutoProcessor just as well as AutoImageProcessor
         return PreprocessHF(modes, self.processor, alias=self.alias, resize=resize, resize_mode=resize_mode)
 
-    def _prepare_vlm_inputs(self, batch, mode):
+    def _prepare_vlm_inputs(self, batch, mode, prompt_override=None):
         """Prepare tokenized inputs for the VLM forward pass."""
         import warnings
         warnings.filterwarnings("ignore", message=".*PaliGemma.*")
@@ -257,8 +268,7 @@ class VLMAdapter(HFAdapter):
         device = next(self.model.parameters()).device
         pv = batch[f"{mode}"].to(device)
 
-        # Cast pixel_values to match model weights dtype (bf16) to avoid
-        # the "Input type / weight type mismatch" RuntimeError
+        # Cast pixel_values to match model weights dtype (bf16) to avoid RuntimeError
         model_dtype = next(self.model.parameters()).dtype
         pv = pv.to(dtype=model_dtype)
 
@@ -267,7 +277,7 @@ class VLMAdapter(HFAdapter):
         # (pv is (B, C, H, W) float, convert back to uint8 PIL for processor)
         from PIL import Image
         B = pv.shape[0]
-        prompt = self._PROMPTS.get(self.alias, " ")
+        prompt = prompt_override if prompt_override is not None else self._PROMPTS.get(self.alias, " ")
         pv_cpu = pv.cpu().float()
         # llava-onevision returns multi-patch pixel_values shaped
         # (B, P, C, H, W); take the canonical first patch since the
@@ -294,6 +304,39 @@ class VLMAdapter(HFAdapter):
     def _masked_mean_pool(hs, attn_mask):
         m = attn_mask.float().unsqueeze(-1)
         return ((hs * m).sum(1) / m.sum(1).clamp_min(1.0)).float().detach()
+
+    def _image_token_mask(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Boolean mask of image-placeholder positions in `input_ids`.
+        `image_token_index` is a standard config field across the
+        AutoModelForImageTextToText VLM families used here (LLaVA-1.5,
+        LLaVA-OneVision, PaliGemma 2)
+
+        > Verify this is valid for any future VLM family added.
+        """
+        return input_ids == self.model.config.image_token_index
+
+    def _prepare_text_only_inputs(self, batch, mode):
+        """Tokenize a .text-only prompt, no image. `pixel_values=None`
+        LLaVA's foward pass code tolerates `pixel_values=None` cleanly as long as `input_ids`
+        contains no image-placeholder tokens.
+        """
+        device = next(self.model.parameters()).device
+        B = batch[f"{mode}"].shape[0]
+        enc = self.processor(
+            text=[self._TEXT_ONLY_PROMPT] * B,
+            return_tensors="pt", padding=True,
+        )
+        input_ids = enc["input_ids"].to(device)
+        attn_mask = enc["attention_mask"].to(device)
+        return input_ids, attn_mask
+
+    def _prepare_image_only_inputs(self, batch, mode):
+        """Build inputs for an image-only forward pass: minimal text prompt
+        so the pooled embedding is dominated by image-token positions."""
+        input_ids, pv_enc, attn_mask = self._prepare_vlm_inputs(
+            batch, mode, prompt_override=self._IMAGE_ONLY_PROMPT
+        )
+        return input_ids, pv_enc, attn_mask
 
     def embed_for_mode(self, batch: Dict[str, Any], mode: str):
         input_ids, pv, attn_mask = self._prepare_vlm_inputs(batch, mode)
@@ -322,6 +365,20 @@ class VLMAdapter(HFAdapter):
         mode: str,
         granularity: str = "blocks",
     ) -> Dict[str, torch.Tensor]:
+        """Runs the 3 forward passes required for pre/post-fusion modality
+        dominance analysis (image-only, text-only, fused — masked pooling
+        of a single fused pass is not sufficient):
+
+        - fused pass: blocks-granularity hooked as before (the vision tower
+          computation is identical whether hooked during the fused pass or
+          an image-only pass, so no extra pass is needed for those columns).
+          Also yields fused_image_masked / fused_text_masked / hidden_states_last
+          (fused_unmasked) via masked pooling of the final LM hidden state.
+        - image-only pass: minimal "<image>"-only prompt, single pooled
+          column (image_only_unimodal).
+        - text-only pass: no pixel_values, single pooled column
+          (text_only_unimodal).
+        """
         input_ids, pv, attn_mask = self._prepare_vlm_inputs(batch, mode)
         seq_len = attn_mask.shape[1]
         model_output = {}
@@ -346,11 +403,39 @@ class VLMAdapter(HFAdapter):
             forward_fn, pool_fn=pool_fn, granularity=granularity
         )
 
-        # Add final hidden state with masked pooling — bit-identical to embed_for_mode
         if "hidden_states_last" in model_output:
-            results["hidden_states_last"] = self._masked_mean_pool(
-                model_output["hidden_states_last"], attn_mask
+            fused_hs = model_output["hidden_states_last"]
+            # Full-sequence pooling — bit-identical to embed_for_mode
+            results["hidden_states_last"] = self._masked_mean_pool(fused_hs, attn_mask)
+
+            image_mask = self._image_token_mask(input_ids) & attn_mask.bool()
+            text_mask = (~self._image_token_mask(input_ids)) & attn_mask.bool()
+            results["fused_image_masked"] = self._masked_mean_pool(fused_hs, image_mask)
+            results["fused_text_masked"] = self._masked_mean_pool(fused_hs, text_mask)
+
+        # Image-only unimodal baseline pass
+        img_ids, img_pv, img_attn = self._prepare_image_only_inputs(batch, mode)
+        with torch.no_grad():
+            img_out = self.model(
+                input_ids=img_ids, pixel_values=img_pv,
+                attention_mask=img_attn, return_dict=True,
+                output_hidden_states=True,
             )
+        results["image_only_unimodal"] = self._masked_mean_pool(
+            img_out.hidden_states[-1], img_attn
+        )
+
+        # Text-only unimodal baseline pass (pixel_values=None)
+        txt_ids, txt_attn = self._prepare_text_only_inputs(batch, mode)
+        with torch.no_grad():
+            txt_out = self.model(
+                input_ids=txt_ids, pixel_values=None,
+                attention_mask=txt_attn, return_dict=True,
+                output_hidden_states=True,
+            )
+        results["text_only_unimodal"] = self._masked_mean_pool(
+            txt_out.hidden_states[-1], txt_attn
+        )
 
         return results
 
